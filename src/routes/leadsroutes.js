@@ -1,9 +1,9 @@
 const express = require('express');
-const { addLeads } = require('../controller/Leads');
+const { addLeads } = require('../controller/leadscontroller');
 const router = express.Router();
 
 
-router.post('/', addLeads);
+router.post('/add', addLeads);
 
 
 
