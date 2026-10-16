@@ -67,12 +67,38 @@ const leadSchema = new mongoose.Schema(
             required: true,
             trim: true,
         },
+
+        // Lead ki edit history
+        editHistory: [
+            {
+                changes: [
+                    {
+                        field: {
+                            type: String,
+                            required: true,
+                        },
+                        oldValue: mongoose.Schema.Types.Mixed,
+                        newValue: mongoose.Schema.Types.Mixed,
+                    },
+                ],
+
+                changedBy: {
+                    type: String,
+                    default: 'System',
+                },
+
+                changedAt: {
+                    type: Date,
+                    default: Date.now,
+                },
+            },
+        ],
     },
     {
         timestamps: true,
     }
 );
 
-const leadsmodel = new mongoose.model('Leads' , leadSchema)
+const leadsmodel = mongoose.model('Leads', leadSchema);
 
-module.exports = leadsmodel
+module.exports = leadsmodel;
