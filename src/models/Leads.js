@@ -27,6 +27,8 @@ const leadSchema = new mongoose.Schema(
             required: true,
             enum: [
                 'website',
+                'instagram',
+                'facebook',
                 'social-media',
                 'referral',
                 'other',

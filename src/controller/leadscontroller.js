@@ -57,6 +57,13 @@ const updateLeads = async (req, res) => {
     try {
         const { id } = req.params;
 
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid lead ID'
+            });
+        }
+
         // 1. Allowed fields
         const allowedFields = [
             'name',
@@ -100,40 +107,29 @@ const updateLeads = async (req, res) => {
             });
         }
 
-        // 4. Changed fields ki history banana
         const changes = [];
 
         for (const field of Object.keys(updates)) {
             const oldValue = oldLead.get(field);
             const newValue = updates[field];
 
-            if (
-                String(oldValue ?? '') !==
-                String(newValue ?? '')
-            ) {
-                changes.push({
-                    field: field,
-                    oldValue: oldValue ?? null,
-                    newValue: newValue ?? null
-                });
-            }
+            changes.push({
+                field: field,
+                oldValue: oldValue ?? null,
+                newValue: newValue ?? null
+            });
         }
 
-        // 5. Update query banana
         const updateQuery = {
             $set: updates
         };
 
-        // 6. Changes hain toh editHistory mein push karna
-        if (changes.length > 0) {
-            updateQuery.$push = {
-                editHistory: {
-                    changes: changes,
-                    changedBy: req.user?.name || 'System',
-                    changedAt: new Date()
-                }
-            };
-        }
+        const historyEntry = {
+            changes: changes,
+            changedBy: req.user?.name || req.user?.email || 'System',
+            changedAt: new Date()
+        };
+        updateQuery.$push = { editHistory: historyEntry };
 
         // 7. Lead update + history ek query mein save karna
         const updatedLead = await leadsmodel.findByIdAndUpdate(
@@ -145,10 +141,18 @@ const updateLeads = async (req, res) => {
             }
         );
 
+        if (!updatedLead) {
+            return res.status(404).json({
+                success: false,
+                message: 'Lead not found'
+            });
+        }
+
         return res.status(200).json({
             success: true,
             message: 'Lead updated successfully',
-            lead: updatedLead
+            lead: updatedLead,
+            historyEntry: updatedLead.editHistory[updatedLead.editHistory.length - 1]
         });
 
     } catch (error) {
@@ -293,9 +297,15 @@ const getLeadHistory = async (req, res) => {
             success: true,
             leadName: lead.name,
             total: history.length,
-            history: history.sort(
-                (a, b) => new Date(b.changedAt) - new Date(a.changedAt)
-            )
+            history: history
+                .slice()
+                .sort((a, b) => new Date(b.changedAt) - new Date(a.changedAt))
+                .map(({ _id, changes, changedBy, changedAt }) => ({
+                    id: _id,
+                    changes,
+                    changedBy,
+                    changedAt
+                }))
         });
 
     } catch (error) {
