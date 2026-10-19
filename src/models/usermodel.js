@@ -15,6 +15,10 @@ const userSchema = new mongoose.Schema(
             lowercase: true,
             trim: true
         },
+        password: {
+            type: String,
+            required: true
+        },
         department: {
             type: String,
             required: true,
@@ -29,6 +33,11 @@ const userSchema = new mongoose.Schema(
             type: String,
             required: true,
             enum: ['Admin', 'Manager', 'Employee']
+        },
+        image: {
+            type: String,
+            trim: true,
+            default: ''
         }
     },
     {
