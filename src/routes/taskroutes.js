@@ -19,6 +19,6 @@ router.put('/update/:id', update);
 router.patch('/update/:id', update);
 router.patch('/status/:id', updateStatus);
 router.delete('/delete/:id', deleteTask);
-router.post('/seed', seedTasks);
+// router.post('/seed', seedTasks);
 
 module.exports = router;
