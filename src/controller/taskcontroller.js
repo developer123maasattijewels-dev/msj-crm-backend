@@ -8,8 +8,8 @@ const generateTaskId = async () => {
     let unique = false;
     let newTaskId = "";
     while (!unique) {
-        const rand = Math.floor(1000 + Math.random() * 9000);
-        newTaskId = `TSK-${rand}`;
+        const random = Math.floor(1000 + Math.random() * 9000);
+        newTaskId = `TSK-${random}`;
         const existing = await Tasks.findOne({ taskId: newTaskId });
         if (!existing) unique = true;
     }
@@ -214,7 +214,6 @@ const getById = async (req, res) => {
     }
 };
 
-// 4. UPDATE Task
 const update = async (req, res) => {
     try {
         const { id } = req.params;
@@ -296,7 +295,6 @@ const update = async (req, res) => {
     }
 };
 
-// 5. UPDATE Status / Submit Work
 const updateStatus = async (req, res) => {
     try {
         const { id } = req.params;
@@ -351,7 +349,6 @@ const updateStatus = async (req, res) => {
     }
 };
 
-// 6. DELETE Task
 const deleteTask = async (req, res) => {
     try {
         const { id } = req.params;
