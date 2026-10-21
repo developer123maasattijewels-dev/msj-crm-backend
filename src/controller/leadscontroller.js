@@ -1,5 +1,8 @@
 const mongoose = require("mongoose")
 const leadsmodel = require("../models/Leads")
+
+const XLSX = require("xlsx");
+
 const addLeads = async (req, res) => {
     try {
 
@@ -315,5 +318,108 @@ const getLeadHistory = async (req, res) => {
         });
     }
 };
+const importLeadsExcel = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: "Please upload an Excel file"
+            });
+        }
 
-module.exports = { addLeads, getLeads, getLeadsId, updateLeads, leadsDelete, leadsfilter, searchLeads, getLeadHistory }
+        const workbook = XLSX.read(req.file.buffer, {
+            type: "buffer"
+        });
+
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+
+        const rows = XLSX.utils.sheet_to_json(sheet, {
+            defval: ""
+        });
+
+        if (!rows.length) {
+            return res.status(400).json({
+                success: false,
+                message: "Excel file is empty"
+            });
+        }
+
+        // Excel column names ko normalize karna
+        const normalize = (value) =>
+            String(value || "")
+                .trim()
+                .toLowerCase()
+                .replace(/[^a-z0-9]/g, "");
+
+        const getValue = (row, aliases) => {
+            const key = Object.keys(row).find((column) =>
+                aliases.includes(normalize(column))
+            );
+
+            return key ? String(row[key] ?? "").trim() : "";
+        };
+
+        const validLeads = [];
+        const invalidRows = [];
+
+        rows.forEach((row, index) => {
+            const lead = {
+                name: getValue(row, ["name", "leadname"]),
+                email: getValue(row, ["email", "emailaddress"]),
+                phone: getValue(row, ["phone", "mobile", "phonenumber"]),
+                source: getValue(row, ["source", "leadsource"]),
+                interestedProduct: getValue(row, [
+                    "interestedproduct", "product"
+                ]),
+                status: getValue(row, ["status", "leadstatus"]),
+                assignedTo: getValue(row, ["assignedto", "assignee"]),
+                notes: getValue(row, ["notes", "remarks"])
+            };
+
+            if (!lead.name) {
+                invalidRows.push({
+                    row: index + 2,
+                    reason: "Name is required"
+                });
+                return;
+            }
+
+            validLeads.push(lead);
+        });
+
+        if (!validLeads.length) {
+            return res.status(400).json({
+                success: false,
+                message: "No valid leads found. Check the Name column.",
+                invalidRows
+            });
+        }
+
+        const insertedLeads = await leadsmodel.insertMany(
+            validLeads,
+            { ordered: false }
+        );
+
+
+        return res.status(201).json({
+            success: true,
+            message: "Excel leads imported successfully",
+
+            totalRows: rows.length,
+            imported: insertedLeads.length,
+            skipped: invalidRows.length,
+            invalidRows,
+
+            leads: insertedLeads
+        });
+
+
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+module.exports = { addLeads, getLeads, getLeadsId, updateLeads, leadsDelete, leadsfilter, searchLeads, getLeadHistory, importLeadsExcel }
