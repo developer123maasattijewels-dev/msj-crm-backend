@@ -60,7 +60,6 @@ const get = async (req, res) => {
         res.status(500).json({ message: 'User not Succesfully' })
     }
 }
-
 const getByid = async (req, res) => {
     try {
         const { id } = req.params
@@ -71,7 +70,6 @@ const getByid = async (req, res) => {
         res.status(500).json({ message: 'User Not get Successfully', error })
     }
 }
-
 const update = async (req, res) => {
     try {
         const { id } = req.params;
@@ -170,8 +168,6 @@ const update = async (req, res) => {
         });
     }
 };
-
-
 const deleteUsers = async (req, res) => {
     try {
         const { id } = req.params;
