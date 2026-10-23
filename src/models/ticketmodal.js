@@ -1,0 +1,69 @@
+const mongoose = require('mongoose');
+
+const quotationSchema = new mongoose.Schema(
+  {
+    vendorName: { type: String, required: true },
+    amount: { type: Number, required: true, min: 0 },
+    reference: { type: String, required: true },
+  },
+  { _id: true }
+);
+
+const ticketSchema = new mongoose.Schema(
+  {
+    ticketNumber: { type: String, unique: true },
+
+    type: {
+      type: String,
+      enum: [
+        'help',
+        'hiring',
+        'internalStoreIssue',
+        'maintenance',
+        'demand',
+        'po',
+      ],
+      required: true,
+    },
+
+    requester: { type: String, required: true, trim: true },
+    department: { type: String, required: true },
+    priority: {
+      type: String,
+      enum: ['Low', 'Medium', 'High', 'Urgent'],
+      default: 'Medium',
+    },
+
+    requiredDate: { type: Date, default: null },
+    description: { type: String, default: '' },
+
+    // Type-specific form data
+    details: { type: mongoose.Schema.Types.Mixed, default: {} },
+
+    quotations: {
+      type: [quotationSchema],
+      default: [],
+      validate: {
+        validator: function (value) {
+          return this.type !== 'demand' || value.length >= 3;
+        },
+        message: 'Demand requires at least 3 quotations.',
+      },
+    },
+
+    approvalBy: { type: String, default: '' },
+    assignee: { type: String, default: 'Unassigned' },
+
+    status: {
+      type: String,
+      enum: ['Open', 'In Progress', 'Resolved', 'Closed'],
+      default: 'Open',
+    },
+  },
+  { timestamps: true }
+);
+
+const Tickets = mongoose.model('Ticket', ticketSchema);
+
+
+module.exports = Tickets;
