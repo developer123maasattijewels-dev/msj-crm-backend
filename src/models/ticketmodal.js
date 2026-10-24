@@ -1,18 +1,32 @@
 const mongoose = require('mongoose');
 
+const replySchema = new mongoose.Schema(
+  {
+    user: { type: String, default: 'Admin' },
+    text: { type: String, required: true },
+    time: {
+      type: String,
+      default: () =>
+        new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    },
+    createdAt: { type: Date, default: Date.now },
+  },
+  { _id: true }
+);
+
 const quotationSchema = new mongoose.Schema(
   {
-    vendorName: { type: String, required: true },
-    amount: { type: Number, required: true, min: 0 },
-    reference: { type: String, required: true },
+    vendorName: { type: String, default: '' },
+    amount: { type: Number, default: 0 },
+    reference: { type: String, default: '' },
   },
   { _id: true }
 );
 
 const ticketSchema = new mongoose.Schema(
   {
-    ticketNumber: { type: String, unique: true },
-
+    ticketNumber: { type: String, unique: true, index: true },
+    subject: { type: String, default: '' },
     type: {
       type: String,
       enum: [
@@ -24,6 +38,7 @@ const ticketSchema = new mongoose.Schema(
         'po',
       ],
       required: true,
+      default: 'help',
     },
 
     requester: { type: String, required: true, trim: true },
@@ -37,18 +52,17 @@ const ticketSchema = new mongoose.Schema(
     requiredDate: { type: Date, default: null },
     description: { type: String, default: '' },
 
-    // Type-specific form data
+    // Type-specific form data (specifications, asset, hiring details, etc.)
     details: { type: mongoose.Schema.Types.Mixed, default: {} },
 
     quotations: {
       type: [quotationSchema],
       default: [],
-      validate: {
-        validator: function (value) {
-          return this.type !== 'demand' || value.length >= 3;
-        },
-        message: 'Demand requires at least 3 quotations.',
-      },
+    },
+
+    replies: {
+      type: [replySchema],
+      default: [],
     },
 
     approvalBy: { type: String, default: '' },
@@ -64,6 +78,5 @@ const ticketSchema = new mongoose.Schema(
 );
 
 const Tickets = mongoose.model('Ticket', ticketSchema);
-
 
 module.exports = Tickets;
