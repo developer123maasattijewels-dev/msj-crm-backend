@@ -19,8 +19,6 @@ app.use('/leads', router)
 app.use('/users', Userroute)
 app.use('/task', Taskroute)
 app.use('/ticket', Ticketroute)
-app.use('/tickets', Ticketroute)
-app.use('/api/tickets', Ticketroute)
 
 
 app.listen(5000, '0.0.0.0', () => {

@@ -21,7 +21,6 @@ const generateTicketNumber = async () => {
   return newTicketNumber;
 };
 
-// 1. CREATE TICKET
 const createTicket = async (req, res) => {
   try {
     const {
@@ -121,7 +120,6 @@ const createTicket = async (req, res) => {
   }
 };
 
-// 2. GET ALL TICKETS WITH SEARCH, FILTERS & COUNTS
 const getAllTickets = async (req, res) => {
   try {
     const {

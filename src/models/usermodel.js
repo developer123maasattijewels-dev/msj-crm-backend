@@ -34,11 +34,7 @@ const userSchema = new mongoose.Schema(
             required: true,
             enum: ['Admin', 'Manager', 'Employee']
         },
-        image: {
-            type: String,
-            trim: true,
-            default: ''
-        }
+        
     },
     {
         timestamps: true
