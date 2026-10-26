@@ -22,19 +22,22 @@ const userSchema = new mongoose.Schema(
         department: {
             type: String,
             required: true,
-            enum: ['Sales', 'Marketing', 'IT', 'MIS', 'ED', 'HR', 'Finance', 'CAD', 'Camming']
+            trim: true
         },
         designation: {
             type: String,
             required: true,
-            enum: ['Sales Executive', 'Marketing Manager', 'Software Developer', 'HR manager', 'Digital Marketing', 'Financial Analyst', 'Cad Desginer', 'Production']
+            trim: true
         },
         role: {
             type: String,
             required: true,
             enum: ['Admin', 'Manager', 'Employee']
         },
-        
+        image: {
+            type: String,
+            default: ''
+        }
     },
     {
         timestamps: true

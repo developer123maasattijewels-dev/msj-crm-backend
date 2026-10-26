@@ -43,6 +43,7 @@ const ticketSchema = new mongoose.Schema(
 
     requester: { type: String, required: true, trim: true },
     department: { type: String, required: true },
+    category: { type: String, default: '' },
     priority: {
       type: String,
       enum: ['Low', 'Medium', 'High', 'Urgent'],
