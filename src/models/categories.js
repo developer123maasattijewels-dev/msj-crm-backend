@@ -6,12 +6,7 @@ const categorySchema = new mongoose.Schema(
         name: {
             type: String,
             required: true,
-            trim: true
-        },
-
-        department: {
-            type: String,
-            required: true,
+            trim: true,
             enum: [
                 'Administration',
                 'CRM & Sales',
@@ -33,6 +28,18 @@ const categorySchema = new mongoose.Schema(
             ]
         },
 
+        subCategories: {
+            type: [String],
+            required: true,
+            validate: {
+                validator: function (items) {
+                    return items.length > 0 &&
+                        items.every(item => item.trim().length > 0);
+                },
+                message: 'At least one valid subcategory is required.'
+            }
+        },
+
         description: {
             type: String,
             default: '',
@@ -47,13 +54,10 @@ const categorySchema = new mongoose.Schema(
     { timestamps: true }
 );
 
-// Same department mein duplicate category allow nahi hogi
 categorySchema.index(
-    { name: 1, department: 1 },
+    { name: 1 },
     { unique: true }
 );
 
-module.exports = mongoose.model(
-    'Category',
-    categorySchema
-);
+const Categories = mongoose.model('Category', categorySchema);
+module.exports = Categories

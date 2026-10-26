@@ -1,7 +1,6 @@
 const mongoose = require('mongoose');
 const Tickets = require('../models/ticketmodal');
 
-// Helper to generate a unique ticketNumber (e.g. TKT-1042)
 const generateTicketNumber = async () => {
   let unique = false;
   let newTicketNumber = '';
@@ -222,7 +221,6 @@ const getAllTickets = async (req, res) => {
   }
 };
 
-// 3. GET TICKET BY ID OR TICKET NUMBER
 const getTicketById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -258,7 +256,6 @@ const getTicketById = async (req, res) => {
   }
 };
 
-// 4. UPDATE TICKET STATUS
 const updateTicketStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -315,7 +312,6 @@ const updateTicketStatus = async (req, res) => {
   }
 };
 
-// 5. ADD ACTIVITY LOG / REPLY NOTE
 const addReply = async (req, res) => {
   try {
     const { id } = req.params;
@@ -372,7 +368,6 @@ const addReply = async (req, res) => {
   }
 };
 
-// 6. UPDATE TICKET DETAILS
 const updateTicket = async (req, res) => {
   try {
     const { id } = req.params;
@@ -410,7 +405,6 @@ const updateTicket = async (req, res) => {
   }
 };
 
-// 7. DELETE TICKET
 const deleteTicket = async (req, res) => {
   try {
     const { id } = req.params;
