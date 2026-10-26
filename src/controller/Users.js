@@ -205,7 +205,7 @@ const deleteUsers = async (req, res) => {
 
 const login = async (req, res) => {
     try {
-        const { email, password, role } = req.body;
+        const { email, password, role, department, category, designation } = req.body;
 
         if (!email || !password) {
             return res.status(400).json({
@@ -224,11 +224,30 @@ const login = async (req, res) => {
             });
         }
 
-        // Role verification (if role is specified)
-        if (role && user.role && user.role.toLowerCase() !== role.trim().toLowerCase()) {
+        // Role verification (if role is specified and not auto/all)
+        const isRoleFilter = role && 
+            role.toLowerCase() !== 'all' && 
+            role.toLowerCase() !== 'auto' && 
+            role.toLowerCase() !== 'auto-detect';
+
+        if (isRoleFilter && user.role && user.role.toLowerCase() !== role.trim().toLowerCase()) {
             return res.status(403).json({
                 success: false,
                 message: `Access denied. Selected role '${role}' does not match your account role ('${user.role}').`
+            });
+        }
+
+        // Department verification (if department is specified and not auto/all)
+        const isDeptFilter = department && 
+            department.toLowerCase() !== 'all' && 
+            department.toLowerCase() !== 'all departments' && 
+            department.toLowerCase() !== 'auto' && 
+            department.toLowerCase() !== 'auto-detect';
+
+        if (isDeptFilter && user.department && user.department.toLowerCase() !== department.trim().toLowerCase()) {
+            return res.status(403).json({
+                success: false,
+                message: `Access denied. Selected department '${department}' does not match your account department ('${user.department}').`
             });
         }
 
@@ -245,6 +264,10 @@ const login = async (req, res) => {
 
         const userObj = user.toObject();
         delete userObj.password;
+
+        // Ensure category and designation are always populated for downstream pages
+        userObj.category = userObj.category || userObj.designation || category || designation || '';
+        userObj.designation = userObj.designation || userObj.category || designation || category || '';
 
         return res.status(200).json({
             success: true,
