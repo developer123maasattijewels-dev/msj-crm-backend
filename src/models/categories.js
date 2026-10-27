@@ -30,7 +30,6 @@ const categorySchema = new mongoose.Schema(
 
         subCategories: {
             type: [String],
-            required: true,
             validate: {
                 validator: function (items) {
                     return items.length > 0 &&
