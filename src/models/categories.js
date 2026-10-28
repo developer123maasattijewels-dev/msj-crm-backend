@@ -23,6 +23,7 @@ const categorySchema = new mongoose.Schema(
                 'HR & Employees',
                 'Finance & Accounts',
                 'MIS',
+                'PC',
                 'IT & Development',
                 'Maintenance & Assets'
             ]
