@@ -263,7 +263,7 @@ const updateTicketStatus = async (req, res) => {
     const { id } = req.params;
     const { status, user = 'Admin' } = req.body;
 
-    const allowedStatuses = ['Open', 'In Progress', 'Resolved', 'Closed'];
+    const allowedStatuses = ['Open', 'In Progress', 'Resolved', 'Closed', 'Approved'];
     if (!status || !allowedStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
@@ -434,6 +434,129 @@ const deleteTicket = async (req, res) => {
   }
 };
 
+
+
+// ─── Generate DMD ticket number ───────────────────────────────────────────────
+const generateDemandNumber = async () => {
+  let unique = false;
+  let number = '';
+  let attempts = 0;
+  while (!unique && attempts < 20) {
+    attempts++;
+    const rand = Math.floor(1000 + Math.random() * 9000);
+    number = `DMD-${rand}`;
+    const existing = await Tickets.findOne({ ticketNumber: number });
+    if (!existing) unique = true;
+  }
+  if (!unique) number = `DMD-${Date.now().toString().slice(-6)}`;
+  return number;
+};
+
+// ─── Create Demand Ticket ─────────────────────────────────────────────────────
+const createDemandTicket = async (req, res) => {
+  try {
+    const {
+      requester,
+      department,
+      targetDepartment = 'Inventory & Bullion Stores',
+      priority = 'Medium',
+      requiredDate,
+      description = '',
+      assignee = 'Unassigned',
+      demandItems = [],   // Array of { itemName, category, quantity, unit, availableStock, purpose }
+    } = req.body;
+
+    // Required field check
+    if (!requester || !requester.trim()) {
+      return res.status(400).json({ success: false, message: 'Requester name is required.' });
+    }
+    if (!department || !department.trim()) {
+      return res.status(400).json({ success: false, message: 'Department is required.' });
+    }
+    if (!Array.isArray(demandItems) || demandItems.length === 0) {
+      return res.status(400).json({ success: false, message: 'At least one demand item is required.' });
+    }
+
+    // Validate each item
+    for (let i = 0; i < demandItems.length; i++) {
+      const item = demandItems[i];
+      if (!item.itemName || !item.itemName.trim()) {
+        return res.status(400).json({ success: false, message: `Item ${i + 1}: itemName is required.` });
+      }
+      if (!item.quantity && item.quantity !== 0) {
+        return res.status(400).json({ success: false, message: `Item ${i + 1}: quantity is required.` });
+      }
+    }
+
+    // Build subject
+    const itemNames = demandItems.map((it) => (it.itemName || '').trim()).filter(Boolean);
+    let subject = '';
+    if (demandItems.length === 1) {
+      subject = `Demand: ${itemNames[0]} (${demandItems[0].quantity} ${demandItems[0].unit || 'Grams'})`;
+    } else {
+      const preview = itemNames.slice(0, 2).join(', ');
+      const extra = itemNames.length > 2 ? ` +${itemNames.length - 2} more` : '';
+      subject = `Demand Requisition (${demandItems.length} items): ${preview}${extra}`;
+    }
+
+    const isPO = req.body.type === 'po';
+    const rand = Math.floor(1000 + Math.random() * 9000);
+    const ticketNumber = isPO ? `PO-${rand}` : await generateDemandNumber();
+    const parsedDate = requiredDate ? new Date(requiredDate) : null;
+
+    if (isPO) {
+      if (demandItems.length === 1) {
+        subject = `Purchase Order: ${itemNames[0]} (${demandItems[0].quantity} ${demandItems[0].unit || 'Units'})`;
+      } else {
+        const preview = itemNames.slice(0, 2).join(', ');
+        const extra = itemNames.length > 2 ? ` +${itemNames.length - 2} more` : '';
+        subject = `Purchase Order (${demandItems.length} items): ${preview}${extra}`;
+      }
+    }
+
+    const ticket = await Tickets.create({
+      ticketNumber,
+      type: isPO ? 'po' : 'demand',
+      subject: req.body.subject || subject,
+      requester: requester.trim(),
+      department: department.trim(),
+      category: isPO ? 'Purchase Order' : 'Demand Ticket',
+      priority,
+      status: 'Open',
+      requiredDate: parsedDate,
+      description: description.trim() || subject,
+      assignee: assignee || 'Unassigned',
+      details: {
+        requesterDepartment: department.trim(),
+        targetDepartment,
+        demandItems,
+        images: req.body.images || req.body.details?.images || [],
+        poNumber: req.body.poNumber || '',
+        vendorName: req.body.vendorName || '',
+        paymentTerms: req.body.paymentTerms || '',
+        deliveryAddress: req.body.deliveryAddress || '',
+        ...(req.body.details || {}),
+      },
+      quotations: [],
+      approvalBy: '',
+      replies: [],
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'Demand ticket created successfully.',
+      ticket,
+      data: ticket,
+    });
+  } catch (error) {
+    console.error('Create Demand Ticket Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to create demand ticket.',
+      error: error.message,
+    });
+  }
+};
 module.exports = {
   createTicket,
   getAllTickets,
@@ -442,4 +565,5 @@ module.exports = {
   addReply,
   updateTicket,
   deleteTicket,
+  createDemandTicket,
 };

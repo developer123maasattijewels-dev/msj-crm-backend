@@ -7,6 +7,7 @@ const {
   addReply,
   updateTicket,
   deleteTicket,
+  createDemandTicket,
 } = require('../controller/Ticket');
 
 const router = express.Router();
@@ -35,5 +36,8 @@ router.put('/update/:id', updateTicket);
 
 // Delete Ticket
 router.delete('/delete/:id', deleteTicket);
+
+// Demand Ticket — dedicated endpoint
+router.post('/demand/create', createDemandTicket);
 
 module.exports = router;
