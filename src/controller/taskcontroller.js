@@ -70,7 +70,7 @@ const add = async (req, res) => {
             assignedBy: assignedBy && assignedBy.trim() ? assignedBy.trim() : "Olivia Carter · Sales Manager",
             assignedTo: validatedAssignedTo,
             dueDate: dueDate ? new Date(dueDate) : null,
-            dueTime: dueTime || "11:00",
+            dueTime: dueTime,
             priority: priority || "High",
             status: status || "Pending",
             recurrence: recurrence || { enabled: false, frequency: "" }
@@ -383,127 +383,7 @@ const deleteTask = async (req, res) => {
     }
 };
 
-// 7. SEED Default Tasks (Optional helper to initialize sample data linked to DB leads & users)
-// const seedTasks = async (req, res) => {
-//     try {
-//         const count = await Tasks.countDocuments();
-//         if (count >= 5 && !req.query.force) {
-//             return res.status(200).json({
-//                 success: true,
-//                 message: "Tasks already exist. Pass ?force=true to seed anyway.",
-//                 count
-//             });
-//         }
 
-//         const leads = await Leads.find().limit(5);
-//         const users = await Users.find().limit(5);
-
-//         const sampleTasks = [
-//             {
-//                 title: "Follow up on solitaire ring enquiry",
-//                 taskId: "TSK-0105",
-//                 taskType: "Follow-up Call",
-//                 relatedLead: leads[0]?._id || null,
-//                 assignedTo: users[0]?._id || null,
-//                 assignedBy: "Olivia Carter · Sales Manager",
-//                 dueDate: new Date(Date.now() + 86400000),
-//                 dueTime: "11:00 AM",
-//                 priority: "High",
-//                 status: "Pending",
-//                 instructions: "Call customer regarding the solitaire engagement ring price quote sent yesterday.",
-//                 description: "High-value customer looking for 1.5ct solitaire ring for upcoming engagement.",
-//                 recurrence: { enabled: false, frequency: "" }
-//             },
-//             {
-//                 title: "Confirm bridal consultation appointment",
-//                 taskId: "TSK-0112",
-//                 taskType: "Consultation",
-//                 relatedLead: leads[1]?._id || leads[0]?._id || null,
-//                 assignedTo: users[1]?._id || users[0]?._id || null,
-//                 assignedBy: "Olivia Carter · Sales Manager",
-//                 dueDate: new Date(Date.now() + 172800000),
-//                 dueTime: "02:30 PM",
-//                 priority: "Medium",
-//                 status: "In Progress",
-//                 instructions: "Prepare bridal necklace catalog and sample sets for in-person VIP preview.",
-//                 description: "Bridal consultation for upcoming destination wedding jewellery set.",
-//                 recurrence: { enabled: false, frequency: "" }
-//             },
-//             {
-//                 title: "Collect bespoke gold bangle deposit",
-//                 taskId: "TSK-0115",
-//                 taskType: "Payment Follow-up",
-//                 relatedLead: leads[2]?._id || leads[0]?._id || null,
-//                 assignedTo: users[0]?._id || null,
-//                 assignedBy: "Olivia Carter · Sales Manager",
-//                 dueDate: new Date(Date.now() - 86400000),
-//                 dueTime: "04:00 PM",
-//                 priority: "Urgent",
-//                 status: "Overdue",
-//                 instructions: "Verify advance payment remittance slip and update order status.",
-//                 description: "Advance token payment for custom handcrafted 22K temple bangle pair.",
-//                 recurrence: { enabled: false, frequency: "" }
-//             },
-//             {
-//                 title: "Send final diamond bracelet quotation",
-//                 taskId: "TSK-0120",
-//                 taskType: "Documentation",
-//                 relatedLead: leads[3]?._id || leads[0]?._id || null,
-//                 assignedTo: users[1]?._id || users[0]?._id || null,
-//                 assignedBy: "James Chen · Senior Associate",
-//                 dueDate: new Date(Date.now() + 259200000),
-//                 dueTime: "12:00 PM",
-//                 priority: "Medium",
-//                 status: "Pending",
-//                 instructions: "Include making charges and certified hallmark certificate details.",
-//                 description: "Tennis bracelet quote for 18K white gold with VVS clarity diamonds.",
-//                 recurrence: { enabled: true, frequency: "weekly" }
-//             },
-//             {
-//                 title: "Confirm final balance invoice received",
-//                 taskId: "TSK-0132",
-//                 taskType: "Documentation",
-//                 relatedLead: leads[4]?._id || leads[0]?._id || null,
-//                 assignedTo: users[0]?._id || null,
-//                 assignedBy: "James Chen · Senior Associate",
-//                 dueDate: new Date(Date.now() - 172800000),
-//                 dueTime: "05:30 PM",
-//                 priority: "Low",
-//                 status: "Completed",
-//                 instructions: "Issue gold purity certificate and invoice receipt upon delivery.",
-//                 description: "Final payment received for 24K bullion coin purchase.",
-//                 submittedAt: new Date(),
-//                 submission: {
-//                     summary: "Payment confirmed via bank wire and official GST invoice issued to client.",
-//                     notes: "Customer collected bullion parcel from showroom safely.",
-//                     evidenceUrl: "https://invoice.maasattijewels.com/inv-8821"
-//                 },
-//                 recurrence: { enabled: false, frequency: "" }
-//             }
-//         ];
-
-//         for (const item of sampleTasks) {
-//             const exists = await Tasks.findOne({ taskId: item.taskId });
-//             if (!exists) {
-//                 await Tasks.create(item);
-//             }
-//         }
-
-//         const all = await Tasks.find();
-//         return res.status(200).json({
-//             success: true,
-//             message: "Tasks seeded successfully.",
-//             count: all.length,
-//             tasks: all
-//         });
-//     } catch (error) {
-//         console.error("Error seeding tasks:", error);
-//         return res.status(500).json({
-//             success: false,
-//             message: error.message
-//         });
-//     }
-// };
 
 module.exports = {
     add,

@@ -8,6 +8,7 @@ const Userroute = require('./src/routes/userroutes')
 const Taskroute = require('./src/routes/taskroutes')
 const Ticketroute = require('./src/routes/ticketroutes')
 const categories = require('./src/routes/categoriesroutes')
+const notification = require('./src/routes/notificationRoutes')
 
 const app = express()
 app.use(express.json())
@@ -21,6 +22,7 @@ app.use('/users', Userroute)
 app.use('/task', Taskroute)
 app.use('/ticket', Ticketroute)
 app.use('/categories', categories)
+app.use('/notification', notification)
 
 
 
