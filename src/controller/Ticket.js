@@ -434,8 +434,6 @@ const deleteTicket = async (req, res) => {
   }
 };
 
-
-
 // ─── Generate DMD ticket number ───────────────────────────────────────────────
 const generateDemandNumber = async () => {
   let unique = false;

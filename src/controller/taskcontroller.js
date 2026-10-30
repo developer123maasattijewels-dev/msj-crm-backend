@@ -94,7 +94,6 @@ const add = async (req, res) => {
         });
     }
 };
-
 const getTask = async (req, res) => {
     try {
         const { search, status, priority, taskType, assignedTo } = req.query;
@@ -382,8 +381,6 @@ const deleteTask = async (req, res) => {
         });
     }
 };
-
-
 
 module.exports = {
     add,
