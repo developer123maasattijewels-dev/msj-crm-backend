@@ -2,10 +2,57 @@
 const mongoose = require("mongoose");
 const notification = require("../models/notificationModel");
 
+
+const createNotification = async (req, res) => {
+    try {
+        const {
+            recipient,
+            task,
+            title,
+            message,
+            type
+        } = req.body;
+
+        if (
+            !mongoose.isValidObjectId(recipient) ||
+            !mongoose.isValidObjectId(task)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid recipient and task IDs are required"
+            });
+        }
+
+        const notifications = await notification.create({
+            recipient,
+            task,
+            title,
+            message,
+            type
+        });
+
+        return res.status(201).json({
+            success: true,
+            message: "Notification created successfully",
+            notifications
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
 const getNotifications = async (req, res) => {
     try {
-        const userId = req.user._id;
-
+        const userId = req.query.userId;;
+        if (!mongoose.isValidObjectId(userId)) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid userId is required"
+            });
+        }
         const notifications = await notification.find({
             recipient: userId
         })
@@ -13,7 +60,7 @@ const getNotifications = async (req, res) => {
             .sort({ createdAt: -1 })
             .limit(50);
 
-        const unreadCount = await Notification.countDocuments({
+        const unreadCount = await notification.countDocuments({
             recipient: userId,
             isRead: false
         });
@@ -43,7 +90,7 @@ const markAsRead = async (req, res) => {
             });
         }
 
-        const notification = await Notification.findOneAndUpdate(
+        const notification = await notification.findOneAndUpdate(
             {
                 _id: id,
                 recipient: req.user._id
@@ -78,7 +125,7 @@ const markAsRead = async (req, res) => {
 
 const markAllAsRead = async (req, res) => {
     try {
-        await Notification.updateMany(
+        await notification.updateMany(
             {
                 recipient: req.user._id,
                 isRead: false
@@ -102,7 +149,9 @@ const markAllAsRead = async (req, res) => {
     }
 };
 module.exports = {
+    createNotification,
     getNotifications,
     markAsRead,
-    markAllAsRead
+    markAllAsRead,
+
 };
