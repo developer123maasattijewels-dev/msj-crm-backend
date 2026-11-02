@@ -38,7 +38,7 @@ exports.createInterview = async (req, res) => {
             candidatePosition,
             source,
             referredBy,
-            createdBy: req.user?._id || null,
+            // createdBy: req.user?._id || null,
         });
 
         res.status(201).json({
