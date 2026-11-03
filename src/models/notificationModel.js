@@ -4,13 +4,13 @@ const notificationSchema = new mongoose.Schema(
     {
         recipient: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: "Users",
+            ref: "User",
             required: true,
             index: true
         },
         task: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: "Tasks",
+            ref: "Task",
             required: true
         },
         title: {

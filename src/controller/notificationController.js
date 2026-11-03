@@ -1,6 +1,6 @@
 
 const mongoose = require("mongoose");
-const notification = require("../models/notificationModel");
+const Notification = require("../models/notificationModel");
 
 
 const createNotification = async (req, res) => {
@@ -23,7 +23,7 @@ const createNotification = async (req, res) => {
             });
         }
 
-        const notifications = await notification.create({
+        const notifications = await Notification.create({
             recipient,
             task,
             title,
@@ -46,21 +46,21 @@ const createNotification = async (req, res) => {
 
 const getNotifications = async (req, res) => {
     try {
-        const userId = req.query.userId;;
+        const userId = req.query.userId;
         if (!mongoose.isValidObjectId(userId)) {
             return res.status(400).json({
                 success: false,
                 message: "Valid userId is required"
             });
         }
-        const notifications = await notification.find({
+        const notifications = await Notification.find({
             recipient: userId
         })
-            .populate("task")
+            .populate("task", "taskId title dueAt dueDate dueTime")
             .sort({ createdAt: -1 })
             .limit(50);
 
-        const unreadCount = await notification.countDocuments({
+        const unreadCount = await Notification.countDocuments({
             recipient: userId,
             isRead: false
         });
@@ -90,10 +90,18 @@ const markAsRead = async (req, res) => {
             });
         }
 
-        const notification = await notification.findOneAndUpdate(
+        const userId = req.user?._id || req.query.userId;
+        if (!mongoose.isValidObjectId(userId)) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid userId is required"
+            });
+        }
+
+        const updatedNotification = await Notification.findOneAndUpdate(
             {
                 _id: id,
-                recipient: req.user._id
+                recipient: userId
             },
             {
                 isRead: true,
@@ -102,7 +110,7 @@ const markAsRead = async (req, res) => {
             { new: true }
         );
 
-        if (!notification) {
+        if (!updatedNotification) {
             return res.status(404).json({
                 success: false,
                 message: "Notification not found"
@@ -112,7 +120,7 @@ const markAsRead = async (req, res) => {
         return res.status(200).json({
             success: true,
             message: "Notification marked as read",
-            notification
+            notification: updatedNotification
         });
 
     } catch (error) {
@@ -125,9 +133,17 @@ const markAsRead = async (req, res) => {
 
 const markAllAsRead = async (req, res) => {
     try {
-        await notification.updateMany(
+        const userId = req.user?._id || req.query.userId;
+        if (!mongoose.isValidObjectId(userId)) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid userId is required"
+            });
+        }
+
+        await Notification.updateMany(
             {
-                recipient: req.user._id,
+                recipient: userId,
                 isRead: false
             },
             {

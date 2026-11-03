@@ -57,9 +57,22 @@ const taskSchema = new mongoose.Schema(
             default: null
         },
 
+        dueAt: {
+            type: Date,
+            default: null,
+            index: true
+        },
+
         dueTime: {
             type: String,
             default: '11:00'
+        },
+
+        reminderMinutesBefore: {
+            type: Number,
+            min: 0,
+            max: 1440,
+            default: 15
         },
 
         priority: {
@@ -120,5 +133,9 @@ taskSchema.pre('save', async function () {
 });
 
 const Tasks = mongoose.model('Task', taskSchema);
+
+if (!mongoose.models.Tasks) {
+    mongoose.model('Tasks', taskSchema, Tasks.collection.name);
+}
 
 module.exports = Tasks;

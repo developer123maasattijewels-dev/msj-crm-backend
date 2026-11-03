@@ -46,6 +46,26 @@ const interviewSchema = new mongoose.Schema(
             trim: true,
             default: "",
         },
+        resume: {
+            originalName: {
+                type: String,
+                trim: true,
+                default: "",
+            },
+            url: {
+                type: String,
+                default: "",
+            },
+            mimeType: {
+                type: String,
+                default: "",
+            },
+            size: {
+                type: Number,
+                min: 0,
+                default: null,
+            },
+        },
 
         // 2. Hiring & Interview
         interview: {

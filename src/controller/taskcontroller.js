@@ -3,6 +3,45 @@ const mongoose = require("mongoose");
 const Leads = require("../models/Leads");
 const Users = require("../models/usermodel");
 
+const getDueAt = (dueAt, dueDate, dueTime) => {
+    if (dueAt) {
+        const parsedDueAt = new Date(dueAt);
+        if (Number.isNaN(parsedDueAt.getTime())) {
+            throw new Error("A valid task due date and time are required.");
+        }
+        return parsedDueAt;
+    }
+
+    if (!dueDate) return null;
+
+    const parsedDate = new Date(dueDate);
+    if (Number.isNaN(parsedDate.getTime())) {
+        throw new Error("A valid task due date is required.");
+    }
+
+    const [hours = 11, minutes = 0] = String(dueTime || "11:00")
+        .split(":")
+        .map(Number);
+    if (
+        !Number.isInteger(hours) ||
+        !Number.isInteger(minutes) ||
+        hours < 0 ||
+        hours > 23 ||
+        minutes < 0 ||
+        minutes > 59
+    ) {
+        throw new Error("A valid task due time is required.");
+    }
+
+    return new Date(Date.UTC(
+        parsedDate.getUTCFullYear(),
+        parsedDate.getUTCMonth(),
+        parsedDate.getUTCDate(),
+        hours,
+        minutes
+    ));
+};
+
 // Helper to generate a unique taskId
 const generateTaskId = async () => {
     let unique = false;
@@ -28,6 +67,8 @@ const add = async (req, res) => {
             assignedTo,
             dueDate,
             dueTime,
+            dueAt,
+            reminderMinutesBefore,
             priority,
             status,
             recurrence,
@@ -71,6 +112,10 @@ const add = async (req, res) => {
             assignedTo: validatedAssignedTo,
             dueDate: dueDate ? new Date(dueDate) : null,
             dueTime: dueTime,
+            dueAt: getDueAt(dueAt, dueDate, dueTime),
+            reminderMinutesBefore: reminderMinutesBefore === "" || reminderMinutesBefore === null
+                ? null
+                : reminderMinutesBefore,
             priority: priority || "High",
             status: status || "Pending",
             recurrence: recurrence || { enabled: false, frequency: "" }
@@ -242,6 +287,8 @@ const update = async (req, res) => {
             assignedTo,
             dueDate,
             dueTime,
+            dueAt,
+            reminderMinutesBefore,
             priority,
             status,
             recurrence,
@@ -255,6 +302,11 @@ const update = async (req, res) => {
         if (instructions !== undefined) task.instructions = instructions.trim();
         if (assignedBy !== undefined) task.assignedBy = assignedBy.trim();
         if (dueTime !== undefined) task.dueTime = dueTime;
+        if (reminderMinutesBefore !== undefined) {
+            task.reminderMinutesBefore = reminderMinutesBefore === "" || reminderMinutesBefore === null
+                ? null
+                : reminderMinutesBefore;
+        }
         if (priority !== undefined) task.priority = priority;
         if (status !== undefined) task.status = status;
         if (recurrence !== undefined) task.recurrence = recurrence;
@@ -271,6 +323,13 @@ const update = async (req, res) => {
 
         if (dueDate !== undefined) {
             task.dueDate = dueDate ? new Date(dueDate) : null;
+        }
+        if (dueAt !== undefined || dueDate !== undefined || dueTime !== undefined) {
+            task.dueAt = getDueAt(
+                dueAt,
+                dueDate !== undefined ? dueDate : task.dueDate,
+                dueTime !== undefined ? dueTime : task.dueTime
+            );
         }
 
         await task.save();
