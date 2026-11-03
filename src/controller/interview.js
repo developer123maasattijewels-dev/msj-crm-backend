@@ -44,8 +44,8 @@ exports.createInterview = async (req, res) => {
             });
         }
 
+      
         const candidate = await Interview.create({
-<<<<<<< HEAD
             candidateName: candidateName.trim(),
             candidateEmail: candidateEmail.trim().toLowerCase(),
             candidatePhone: candidatePhone.trim(),
@@ -62,17 +62,8 @@ exports.createInterview = async (req, res) => {
                 }
                 : undefined,
             createdBy: req.user?._id || null,
-=======
-            candidateName,
-            candidateEmail,
-            candidatePhone,
-            department,
-            candidatePosition,
-            source,
-            referredBy,
-            // createdBy: req.user?._id || null,
->>>>>>> 8dcdd6f22c50db2d71f57a4f6fbc85237563b50d
         });
+
 
         res.status(201).json({
             success: true,
