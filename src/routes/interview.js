@@ -1,13 +1,13 @@
 
 const express = require("express");
-const { createInterview } = require("../controller/interview");
+const { createInterview , getAllInterviews } = require("../controller/interview");
 const router = express.Router();
 
 
 
 // Candidate registration and dashboard
 router.post("/add", createInterview);
-// router.get("/", getAllInterviews);
+router.get("/", getAllInterviews);
 
 // // Individual candidate
 // router.get("/:id", getInterviewById);

@@ -68,17 +68,7 @@ const interviewSchema = new mongoose.Schema(
                 max: 5,
                 default: null,
             },
-            result: {
-                type: String,
-                enum: [
-                    "Pending",
-                    "Selected",
-                    "Rejected",
-                    "On Hold",
-                    "Second Interview",
-                ],
-                default: "Pending",
-            },
+    
             offeredPosition: {
                 type: String,
                 default: "",
@@ -88,6 +78,48 @@ const interviewSchema = new mongoose.Schema(
                 min: 0,
                 default: null,
             },
+            interviewStatus: {
+                type: String,
+                enum: [
+                    "Pending",
+                    "Scheduled",
+                    "In Progress",
+                    "Selected",
+                    "Rejected",
+                    "On Hold",
+                ],
+                default: "Pending",
+            },
+
+            interviewDate: {
+                type: Date,
+                default: null,
+            },
+
+            interviewMode: {
+                type: String,
+                enum: ["Online", "Offline", "Telephonic"],
+                default: "Offline",
+            },
+
+            interviewer: {
+                type: String,
+                trim: true,
+                default: "",
+            },
+
+            feedback: {
+                type: String,
+                trim: true,
+                default: "",
+            },
+
+            remarks: {
+                type: String,
+                trim: true,
+                default: "",
+            },
+
         },
 
         // 3. Overall Hiring Workflow
