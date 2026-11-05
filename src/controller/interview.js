@@ -79,7 +79,6 @@ exports.createInterview = async (req, res) => {
     }
 };
 
-
 exports.getAllInterviews = async (req, res) => {
     try {
         const {

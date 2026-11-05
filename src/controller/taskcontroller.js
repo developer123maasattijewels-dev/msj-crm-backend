@@ -2,6 +2,40 @@ const Tasks = require("../models/taskmodel");
 const mongoose = require("mongoose");
 const Leads = require("../models/Leads");
 const Users = require("../models/usermodel");
+const Checklists = require("../models/cheacklist");
+const Notification = require("../models/notificationModel");
+
+const isCompletedStatus = status => String(status || "").toLowerCase() === "completed";
+
+const notifyChecklistCompletion = async task => {
+    if (!task.checklistId) return;
+
+    try {
+        const checklist = await Checklists.findById(task.checklistId)
+            .select("notifyOnCompletionUsers");
+        const recipients = [...new Set(
+            (checklist?.notifyOnCompletionUsers || []).map(userId => String(userId))
+        )];
+
+        for (const recipient of recipients) {
+            try {
+                await Notification.create({
+                    recipient,
+                    task: task._id,
+                    title: "Checklist task completed",
+                    message: `The checklist task "${task.title}" has been completed.`,
+                    type: "task_update"
+                });
+            } catch (error) {
+                if (error.code !== 11000) {
+                    console.error("Checklist completion notification error:", error);
+                }
+            }
+        }
+    } catch (error) {
+        console.error("Unable to load checklist completion recipients:", error);
+    }
+};
 
 const getDueAt = (dueAt, dueDate, dueTime) => {
     if (dueAt) {
@@ -277,6 +311,7 @@ const update = async (req, res) => {
             });
         }
 
+        const wasCompleted = isCompletedStatus(task.status);
         const {
             title,
             description,
@@ -333,6 +368,9 @@ const update = async (req, res) => {
         }
 
         await task.save();
+        if (!wasCompleted && isCompletedStatus(task.status)) {
+            await notifyChecklistCompletion(task);
+        }
 
         const updated = await Tasks.findById(task._id)
             .populate("relatedLead", "name phone email source interestedProduct status")
@@ -373,6 +411,7 @@ const updateStatus = async (req, res) => {
             });
         }
 
+        const wasCompleted = isCompletedStatus(task.status);
         if (status) {
             task.status = status;
         }
@@ -387,6 +426,9 @@ const updateStatus = async (req, res) => {
         }
 
         await task.save();
+        if (!wasCompleted && isCompletedStatus(task.status)) {
+            await notifyChecklistCompletion(task);
+        }
 
         const updated = await Tasks.findById(task._id)
             .populate("relatedLead", "name phone email source interestedProduct status")

@@ -2,34 +2,35 @@ const cron = require("node-cron");
 
 const Tasks = require("../models/taskmodel");
 const Notification = require("../models/notificationModel");
+const Users = require("../models/usermodel");
 
 const createAndSend = async ({
     task,
     type,
     title,
-    message
+    message,
+    recipients = [task.assignedTo]
 }) => {
-    if (!task.assignedTo) return;
+    const uniqueRecipients = [...new Set(
+        recipients.filter(Boolean).map(recipient => String(recipient._id || recipient))
+    )];
 
-    const recipient = task.assignedTo._id || task.assignedTo;
+    for (const recipient of uniqueRecipients) {
+        try {
+            await Notification.create({
+                recipient,
+                task: task._id,
+                title,
+                message,
+                type
+            });
 
-    try {
-        await Notification.create({
-            recipient,
-            task: task._id,
-            title,
-            message,
-            type
-        });
-
-        console.log(
-            `${type} notification sent for task ${task.taskId}`
-        );
-
-    } catch (error) {
-        if (error.code === 11000) return;
-
-        console.error("Reminder error:", error);
+            console.log(`${type} notification sent for task ${task.taskId}`);
+        } catch (error) {
+            if (error.code !== 11000) {
+                console.error("Reminder error:", error);
+            }
+        }
     }
 };
 
@@ -45,6 +46,7 @@ const checkTaskReminders = async () => {
                 { dueAt: null, dueDate: { $lte: latestReminderDueAt } }
             ]
         });
+        let pcTeamRecipients = null;
 
         for (const task of activeTasks) {
             const dueAt = task.dueAt || (
@@ -82,11 +84,19 @@ const checkTaskReminders = async () => {
             }
 
             if (dueAt <= now) {
+                const recipients = [task.assignedTo, ...(task.notifyPCTeamUsersWhenDue || [])];
+                if (!task.notifyPCTeamUsersWhenDue?.length && task.notifyPCTeamWhenDue) {
+                    if (pcTeamRecipients === null) {
+                        pcTeamRecipients = await Users.find({ department: /^pc$/i }).select("_id");
+                    }
+                    recipients.push(...pcTeamRecipients);
+                }
                 await createAndSend({
                     task,
                     type: "task_overdue",
                     title: "Task Overdue",
-                    message: `Your task "${task.title}" is overdue. Please complete it.`
+                    message: `The task "${task.title}" is overdue. Please complete it.`,
+                    recipients
                 });
             }
         }

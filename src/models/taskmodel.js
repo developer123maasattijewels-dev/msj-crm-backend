@@ -34,6 +34,17 @@ const taskSchema = new mongoose.Schema(
             default: null
         },
 
+        checklistId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Cheacklist',
+            default: null
+        },
+
+        checklistOccurrenceKey: {
+            type: String,
+            default: undefined
+        },
+
         instructions: {
             type: String,
             default: '',
@@ -51,6 +62,22 @@ const taskSchema = new mongoose.Schema(
             ref: 'User',
             default: null
         },
+
+        assignPC: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            default: null
+        },
+
+        notifyPCTeamWhenDue: {
+            type: Boolean,
+            default: false
+        },
+
+        notifyPCTeamUsersWhenDue: [{
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        }],
 
         dueDate: {
             type: Date,
@@ -123,6 +150,8 @@ const taskSchema = new mongoose.Schema(
         timestamps: true
     }
 );
+
+taskSchema.index({ checklistOccurrenceKey: 1 }, { unique: true, sparse: true });
 
 // Auto-generate taskId if not provided
 taskSchema.pre('save', async function () {

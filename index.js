@@ -11,7 +11,9 @@ const Ticketroute = require('./src/routes/ticketroutes')
 const categories = require('./src/routes/categoriesroutes')
 const notification = require('./src/routes/notificationRoutes')
 const interview = require('./src/routes/interview')
+const checklists = require('./src/routes/checklistRoutes')
 const { startTaskReminderCron } = require('./src/cronjob/taskReminder')
+const { startChecklistScheduler } = require('./src/cronjob/checklistScheduler')
 
 const app = express()
 app.use(express.json())
@@ -28,10 +30,12 @@ app.use('/ticket', Ticketroute)
 app.use('/categories', categories)
 app.use('/notification', notification)
 app.use('/interview', interview)
+app.use('/checklists', checklists)
 
 
 
 app.listen(5000, '0.0.0.0', () => {
     console.log('server is running on port 5000')
     startTaskReminderCron()
+    startChecklistScheduler()
 })
