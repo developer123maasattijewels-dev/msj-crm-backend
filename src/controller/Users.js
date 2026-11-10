@@ -54,7 +54,7 @@ const add = async (req, res) => {
 
 const get = async (req, res) => {
     try {
-        const get = await Users.find()
+        const get = await Users.find().select('-password')
         res.status(201).json({ message: 'User Get Succesfully', User: get })
     } catch (error) {
         res.status(500).json({ message: 'User not Succesfully' })
