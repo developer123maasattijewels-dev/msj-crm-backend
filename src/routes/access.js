@@ -1,6 +1,7 @@
 
 const express = require("express");
 const requireAdmin = require("../middleware/requireAdmin");
+const authenticateUser = require("../middleware/authenticateUser");
 
 const router = express.Router();
 
@@ -19,7 +20,7 @@ router.get("/modules", getModules);
 router.post("/assign", requireAdmin, assignAccess);
 
 // Get particular employee access
-router.get("/user/:userId", requireAdmin, getUserAccess);
+router.get("/user/:userId", authenticateUser, getUserAccess);
 router.get("/all", requireAdmin, getAllAccess);
 
 

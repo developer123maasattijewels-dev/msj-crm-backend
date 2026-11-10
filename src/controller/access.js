@@ -45,6 +45,12 @@ const assignAccess = async (req, res) => {
                 message: "Invalid user ID"
             });
         }
+        if (req.authUser.role !== "Admin" && req.authUser._id.toString() !== userId) {
+            return res.status(403).json({
+                success: false,
+                message: "You can only view your own access."
+            });
+        }
 
         const validModules = sidebarModules.map(
             module => module.key
