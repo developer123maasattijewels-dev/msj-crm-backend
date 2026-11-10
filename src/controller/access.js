@@ -189,9 +189,26 @@ const getUserAccess = async (req, res) => {
     }
 };
 
+const getAllAccess = async (_req, res) => {
+    try {
+        const accesses = await Access.find().select("userId resourceKey permissions");
+        return res.status(200).json({
+            success: true,
+            message: "Employee access fetched successfully",
+            data: accesses
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
 
 module.exports = {
     getModules,
     assignAccess,
-    getUserAccess
+    getUserAccess,
+    getAllAccess
 };

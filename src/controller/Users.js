@@ -1,4 +1,5 @@
 const Users = require("../models/usermodel")
+const jwt = require("jsonwebtoken")
 
 const add = async (req, res) => {
     try {
@@ -213,6 +214,12 @@ const login = async (req, res) => {
                 message: 'Email and password are required.'
             });
         }
+        if (!process.env.JWT_SECRET) {
+            return res.status(500).json({
+                success: false,
+                message: 'Server authentication is not configured. Set JWT_SECRET.'
+            });
+        }
 
         const normalizedEmail = email.trim().toLowerCase();
         const user = await Users.findOne({ email: normalizedEmail });
@@ -251,9 +258,7 @@ const login = async (req, res) => {
             });
         }
 
-        const isValid = user.password
-            ? user.password === password
-            : (password === 'admin123' || password === 'msj@123' || password === 'rajatsingh');
+        const isValid = user.password === password;
 
         if (!isValid) {
             return res.status(401).json({
@@ -272,7 +277,7 @@ const login = async (req, res) => {
         return res.status(200).json({
             success: true,
             message: 'Login successful.',
-            token: `msj_token_${user._id}_${Date.now()}`,
+            token: jwt.sign({ id: user._id.toString() }, process.env.JWT_SECRET, { expiresIn: '12h' }),
             user: userObj
         });
     } catch (error) {
