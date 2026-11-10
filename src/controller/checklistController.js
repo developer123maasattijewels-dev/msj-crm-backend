@@ -44,40 +44,33 @@ const pickChecklistFields = body => checklistFields.reduce((fields, key) => {
     return fields;
 }, {});
 
-const hasInvalidPersonReference = fields => {
-    const personFields = ["assignedTo", "auditor", "assignPC"];
-    if (personFields.some(key => fields[key] && !mongoose.isValidObjectId(fields[key]))) {
-        return true;
+const validateChecklist = async (fields, creating = false) => {
+    if (creating && !fields.assignedTo) return "A valid assignee is required.";
+    if (fields.taskName !== undefined && (typeof fields.taskName !== "string" || !fields.taskName.trim())) {
+        return creating ? "Task name is required." : "Task name cannot be empty.";
     }
-    const userLists = ["notifyOnCompletionUsers", "notifyPCTeamUsersWhenDue"];
-    return userLists.some(key => fields[key] !== undefined &&
-        (!Array.isArray(fields[key]) ||
-            fields[key].some(userId => !mongoose.isValidObjectId(userId))));
-};
+    if (fields.message !== undefined && typeof fields.message !== "string") return "Message must be text.";
+    if (fields.assignedTo !== undefined && (!fields.assignedTo || !mongoose.isValidObjectId(fields.assignedTo))) {
+        return "A valid assignee is required.";
+    }
 
-const isPCDepartmentUser = async assignPC => {
-    if (!assignPC) return true;
-    return Boolean(await Users.exists({
-        _id: assignPC,
-        department: /^pc$/i
-    }));
-};
+    const people = ["assignedTo", "auditor", "assignPC"];
+    const lists = ["notifyOnCompletionUsers", "notifyPCTeamUsersWhenDue"];
+    if (people.some(key => fields[key] && !mongoose.isValidObjectId(fields[key])) ||
+        lists.some(key => fields[key] !== undefined &&
+            (!Array.isArray(fields[key]) || fields[key].some(id => !mongoose.isValidObjectId(id))))) {
+        return "Assignee, auditor, and PC must be valid team members.";
+    }
+    if (fields.assignPC && !await Users.exists({ _id: fields.assignPC, department: /^pc$/i })) {
+        return "Assign PC must be a member of the PC department.";
+    }
+    if (fields.notifyPCTeamUsersWhenDue?.length) {
+        const ids = [...new Set(fields.notifyPCTeamUsersWhenDue.map(String))];
+        const count = await Users.countDocuments({ _id: { $in: ids }, department: /^pc$/i });
+        if (count !== ids.length) return "Overdue notification recipients must be members of the PC department.";
+    }
 
-const arePCDepartmentUsers = async userIds => {
-    if (!userIds) return true;
-    if (!Array.isArray(userIds)) return false;
-    if (userIds.length === 0) return true;
-
-    const uniqueIds = [...new Set(userIds.map(String))];
-    const matchingUsers = await Users.countDocuments({
-        _id: { $in: uniqueIds },
-        department: /^pc$/i
-    });
-    return matchingUsers === uniqueIds.length;
-};
-
-const validateSchedule = fields => {
-    const frequency = fields.frequency;
+    const { frequency } = fields;
     if (frequency === undefined || frequency === "One Time") return null;
     if (!["Daily", "Weekly", "Monthly", "Quarterly", "Yearly", "Custom"].includes(frequency)) {
         return "Choose a supported checklist frequency.";
@@ -85,15 +78,12 @@ const validateSchedule = fields => {
     if (!fields.plannedDate || Number.isNaN(new Date(fields.plannedDate).getTime())) {
         return "A planned start date is required for recurring checklists.";
     }
-    if (fields.reminderStartingTime &&
-        !/^([01]\d|2[0-3]):[0-5]\d$/.test(fields.reminderStartingTime)) {
+    if (fields.reminderStartingTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(fields.reminderStartingTime)) {
         return "Choose a valid checklist task time.";
     }
-    if (frequency === "Weekly") {
-        if (!Array.isArray(fields.weeklyDays) || fields.weeklyDays.length === 0 ||
-            fields.weeklyDays.some(day => !Number.isInteger(Number(day)) || Number(day) < 0 || Number(day) > 6)) {
-            return "Select at least one valid weekday for a weekly checklist.";
-        }
+    if (frequency === "Weekly" && (!Array.isArray(fields.weeklyDays) || !fields.weeklyDays.length ||
+        fields.weeklyDays.some(day => !Number.isInteger(Number(day)) || Number(day) < 0 || Number(day) > 6))) {
+        return "Select at least one valid weekday for a weekly checklist.";
     }
     if (frequency === "Monthly" &&
         (!Number.isInteger(Number(fields.monthlyDay)) || Number(fields.monthlyDay) < 1 || Number(fields.monthlyDay) > 31)) {
@@ -115,27 +105,10 @@ const populatePeople = query => query
 
 const addChecklist = async (req, res) => {
     try {
-        const { taskName, message, assignedTo } = req.body;
-        if (typeof taskName !== "string" || !taskName.trim()) {
-            return res.status(400).json({ success: false, message: "Task name is required." });
-        }
-        if (!assignedTo || !mongoose.isValidObjectId(assignedTo)) {
-            return res.status(400).json({ success: false, message: "A valid assignee is required." });
-        }
-        if (hasInvalidPersonReference(req.body)) {
-            return res.status(400).json({ success: false, message: "Assignee, auditor, and PC must be valid team members." });
-        }
-        if (!(await isPCDepartmentUser(req.body.assignPC))) {
-            return res.status(400).json({ success: false, message: "Assign PC must be a member of the PC department." });
-        }
-        if (!(await arePCDepartmentUsers(req.body.notifyPCTeamUsersWhenDue))) {
-            return res.status(400).json({ success: false, message: "Overdue notification recipients must be members of the PC department." });
-        }
-        const scheduleError = validateSchedule(req.body);
-        if (scheduleError) {
-            return res.status(400).json({ success: false, message: scheduleError });
-        }
+        const validationError = await validateChecklist(req.body, true);
+        if (validationError) return res.status(400).json({ success: false, message: validationError });
 
+        const { taskName, message } = req.body;
         const checklist = await Checklists.create({
             ...pickChecklistFields(req.body),
             taskName: taskName.trim(),
@@ -210,99 +183,209 @@ const submitChecklistResponse = async (req, res) => {
     }
 };
 
+
 const importChecklistsExcel = async (req, res) => {
     try {
         if (!req.file) {
-            return res.status(400).json({ success: false, message: "Please upload an Excel or CSV file." });
+            return res.status(400).json({
+                success: false,
+                message: "Please upload an Excel or CSV file."
+            });
         }
 
-        const workbook = XLSX.read(req.file.buffer, { type: "buffer", cellDates: true });
-        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = firstSheet ? XLSX.utils.sheet_to_json(firstSheet, { defval: "" }) : [];
+        const workbook = XLSX.read(req.file.buffer, {
+            type: "buffer",
+            cellDates: true
+        });
+
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = sheet
+            ? XLSX.utils.sheet_to_json(sheet, { defval: "" })
+            : [];
+
         if (!rows.length) {
-            return res.status(400).json({ success: false, message: "The uploaded file has no checklist rows." });
-        }
-        if (rows.length > 1000) {
-            return res.status(400).json({ success: false, message: "Import is limited to 1,000 checklist rows per file." });
+            return res.status(400).json({
+                success: false,
+                message: "Excel file is empty."
+            });
         }
 
-        const normalize = value => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (rows.length > 1000) {
+            return res.status(400).json({
+                success: false,
+                message: "Maximum 1000 rows allowed."
+            });
+        }
+
+        // Excel column matching
+        const normalize = value =>
+            String(value).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+
         const getValue = (row, aliases) => {
-            const column = Object.keys(row).find(key => aliases.includes(normalize(key)));
-            return column ? row[column] : "";
+            const key = Object.keys(row).find(key =>
+                aliases.includes(normalize(key))
+            );
+            return key !== undefined ? row[key] : "";
         };
-        const users = await Users.find({}).select("name email");
+
+        // Fetch all users including MongoDB ID
+        const users = await Users.find({}).select("_id name email");
+
         const imported = [];
         const invalidRows = [];
 
+        const frequencies = [
+            "One Time", "Daily", "Weekly", "Monthly",
+            "Quarterly", "Yearly", "Custom"
+        ];
+
+        const priorities = ["Low", "Medium", "High", "Urgent"];
+        const dayNames = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+
         for (const [index, row] of rows.entries()) {
-            const taskName = String(getValue(row, ["taskname", "name", "title"]) || "").trim();
-            const assignee = String(getValue(row, ["assignedto", "assignedtoemailorname", "assignee", "assignedemail", "assigneeemail"]) || "").trim();
-            const frequency = String(getValue(row, ["frequency", "repeat"]) || "One Time").trim();
-            const priority = String(getValue(row, ["priority"]) || "Medium").trim();
-            const message = String(getValue(row, ["message", "instructions", "description"]) || "").trim();
-            const weeklyDaysValue = String(getValue(row, ["weeklydays", "repeaton"]) || "").trim();
-            const weeklyDayNames = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+
+            const rowNumber = index + 2;
+
+            const taskName = String(
+                getValue(row, ["taskname", "name", "title"]) || ""
+            ).trim();
+
+            const assignee = String(
+                getValue(row, [
+                    "assignedto",
+                    "assignedtoemailorname",
+                    "assignee",
+                    "assignedemail",
+                    "assigneeemail"
+                ]) || ""
+            ).trim();
+
+            const frequency = String(
+                getValue(row, ["frequency", "repeat"]) || "One Time"
+            ).trim();
+
+            const priority = String(
+                getValue(row, ["priority"]) || "Medium"
+            ).trim();
+
+            const message = String(
+                getValue(row, ["message", "instructions", "description"]) || ""
+            ).trim();
+
+            // Match MongoDB ID, Name or Email
+            const assigneeUser = users.find(user =>
+                String(user._id) === assignee ||
+                user.email?.toLowerCase() === assignee.toLowerCase() ||
+                user.name?.toLowerCase() === assignee.toLowerCase()
+            );
+
+            // Weekly days
+            const weeklyDaysValue = String(
+                getValue(row, ["weeklydays", "repeaton"]) || ""
+            ).trim();
+
             const weeklyDays = weeklyDaysValue
                 ? weeklyDaysValue.split(/[;,|]/).map(value => {
                     const day = value.trim().toLowerCase().slice(0, 3);
-                    return /^\d$/.test(day) ? Number(day) : weeklyDayNames.indexOf(day);
+                    return /^\d$/.test(day)
+                        ? Number(day)
+                        : dayNames.indexOf(day);
                 })
                 : [];
-            const monthlyDay = Number(getValue(row, ["monthlyday", "dayofmonth"])) || 0;
-            const customIntervalDays = Number(getValue(row, ["customintervaldays", "repeateverydays"])) || 0;
-            const assigneeUser = users.find(user =>
-                user.email.toLowerCase() === assignee.toLowerCase() ||
-                user.name.toLowerCase() === assignee.toLowerCase()
-            );
-            const rawDate = getValue(row, ["planneddate", "planneddateyyyymmdd", "startdate", "duedate"]);
+
+            // Monthly and custom values
+            const monthlyDay = Number(
+                getValue(row, ["monthlyday", "dayofmonth"])
+            ) || 0;
+
+            const customIntervalDays = Number(
+                getValue(row, ["customintervaldays", "repeateverydays"])
+            ) || 0;
+
+            // Planned date
+            const rawDate = getValue(row, [
+                "planneddate",
+                "planneddateyyyymmdd",
+                "startdate",
+                "duedate"
+            ]);
+
             let plannedDate = null;
-            if (rawDate instanceof Date && !Number.isNaN(rawDate.getTime())) {
+
+            if (rawDate instanceof Date && !isNaN(rawDate.getTime())) {
                 plannedDate = rawDate;
+
             } else if (typeof rawDate === "number") {
                 const parsed = XLSX.SSF.parse_date_code(rawDate);
-                if (parsed) plannedDate = new Date(Date.UTC(parsed.y, parsed.m - 1, parsed.d));
+
+                if (parsed) {
+                    plannedDate = new Date(
+                        Date.UTC(parsed.y, parsed.m - 1, parsed.d)
+                    );
+                }
+
             } else if (rawDate) {
                 const parsed = new Date(String(rawDate).trim());
-                if (!Number.isNaN(parsed.getTime())) plannedDate = parsed;
+
+                if (!isNaN(parsed.getTime())) {
+                    plannedDate = parsed;
+                }
             }
 
-            const rowNumber = index + 2;
+            // Validation
+            let error = "";
+
             if (!taskName) {
-                invalidRows.push({ row: rowNumber, reason: "Task Name is required." });
-                continue;
+                error = "Task Name is required.";
+
+            } else if (!assigneeUser) {
+                error = `Assigned To "${assignee || "(blank)"}" did not match user ID, name or email.`;
+
+            } else if (!frequencies.includes(frequency)) {
+                error = `Invalid frequency "${frequency}".`;
+
+            } else if (!priorities.includes(priority)) {
+                error = `Invalid priority "${priority}".`;
+
+            } else if (
+                frequency !== "One Time" &&
+                (!plannedDate || isNaN(plannedDate.getTime()))
+            ) {
+                error = "Valid Planned Date is required.";
+
+            } else if (
+                frequency === "Weekly" &&
+                (!weeklyDays.length ||
+                    weeklyDays.some(day =>
+                        !Number.isInteger(day) || day < 0 || day > 6
+                    ) ||
+                    new Set(weeklyDays).size !== weeklyDays.length)
+            ) {
+                error = "Invalid Weekly Days. Use Mon,Wed,Fri.";
+
+            } else if (
+                frequency === "Monthly" &&
+                (monthlyDay < 1 || monthlyDay > 31)
+            ) {
+                error = "Monthly Day must be between 1 and 31.";
+
+            } else if (
+                frequency === "Custom" &&
+                (customIntervalDays < 1 || customIntervalDays > 365)
+            ) {
+                error = "Custom Interval must be between 1 and 365 days.";
             }
-            if (!assigneeUser) {
-                invalidRows.push({ row: rowNumber, reason: `Assigned To "${assignee || "(blank)"}" did not match a user name or email.` });
-                continue;
-            }
-            if (!["One Time", "Daily", "Weekly", "Monthly", "Quarterly", "Yearly", "Custom"].includes(frequency)) {
-                invalidRows.push({ row: rowNumber, reason: `Unsupported frequency "${frequency}".` });
-                continue;
-            }
-            if (!["Low", "Medium", "High", "Urgent"].includes(priority)) {
-                invalidRows.push({ row: rowNumber, reason: `Unsupported priority "${priority}".` });
-                continue;
-            }
-            if (frequency !== "One Time" && !plannedDate) {
-                invalidRows.push({ row: rowNumber, reason: "A valid Planned Date is required for recurring tasks." });
-                continue;
-            }
-            if (frequency === "Weekly" &&
-                (!weeklyDays.length || weeklyDays.some(day => !Number.isInteger(day) || day < 0 || day > 6))) {
-                invalidRows.push({ row: rowNumber, reason: "Weekly Days must be comma-separated names (Mon,Wed) or numbers (1,3)." });
-                continue;
-            }
-            if (frequency === "Monthly" && (!Number.isInteger(monthlyDay) || monthlyDay < 1 || monthlyDay > 31)) {
-                invalidRows.push({ row: rowNumber, reason: "Monthly Day must be a number from 1 to 31." });
-                continue;
-            }
-            if (frequency === "Custom" &&
-                (!Number.isInteger(customIntervalDays) || customIntervalDays < 1 || customIntervalDays > 365)) {
-                invalidRows.push({ row: rowNumber, reason: "Custom Interval Days must be a number from 1 to 365." });
+
+            if (error) {
+                invalidRows.push({
+                    row: rowNumber,
+                    taskName,
+                    reason: error
+                });
                 continue;
             }
 
+            // Prepare checklist data
             imported.push({
                 taskName,
                 message,
@@ -310,25 +393,37 @@ const importChecklistsExcel = async (req, res) => {
                 frequency,
                 plannedDate,
                 priority,
-                weeklyDays: frequency === "Weekly" ? [...new Set(weeklyDays)] : [],
+                weeklyDays: frequency === "Weekly" ? weeklyDays : [],
                 monthlyDay: frequency === "Monthly" ? monthlyDay : 1,
-                customIntervalDays: frequency === "Custom" ? customIntervalDays : 1
+                customIntervalDays: frequency === "Custom"
+                    ? customIntervalDays
+                    : 1
             });
         }
 
-        if (imported.length) await Checklists.insertMany(imported, { ordered: false });
+        // Import valid rows
+        if (imported.length) {
+            await Checklists.insertMany(imported, { ordered: true });
+        }
+
         return res.status(200).json({
             success: true,
-            message: `${imported.length} checklist(s) imported.`,
+            message: `${imported.length} checklist(s) imported successfully.`,
             imported: imported.length,
             failed: invalidRows.length,
             invalidRows
         });
+
     } catch (error) {
         console.error("Checklist Excel import error:", error);
-        return res.status(500).json({ success: false, message: error.message || "Unable to import checklists." });
+
+        return res.status(500).json({
+            success: false,
+            message: error.message || "Unable to import checklists."
+        });
     }
 };
+
 
 const updateChecklist = async (req, res) => {
     try {
@@ -336,28 +431,8 @@ const updateChecklist = async (req, res) => {
             return res.status(400).json({ success: false, message: "Invalid checklist ID." });
         }
         const update = pickChecklistFields(req.body);
-        if (update.taskName !== undefined && (typeof update.taskName !== "string" || !update.taskName.trim())) {
-            return res.status(400).json({ success: false, message: "Task name cannot be empty." });
-        }
-        if (update.message !== undefined && typeof update.message !== "string") {
-            return res.status(400).json({ success: false, message: "Message must be text." });
-        }
-        if (update.assignedTo !== undefined && (!update.assignedTo || !mongoose.isValidObjectId(update.assignedTo))) {
-            return res.status(400).json({ success: false, message: "A valid assignee is required." });
-        }
-        if (hasInvalidPersonReference(update)) {
-            return res.status(400).json({ success: false, message: "Assignee, auditor, and PC must be valid team members." });
-        }
-        if (!(await isPCDepartmentUser(update.assignPC))) {
-            return res.status(400).json({ success: false, message: "Assign PC must be a member of the PC department." });
-        }
-        if (!(await arePCDepartmentUsers(update.notifyPCTeamUsersWhenDue))) {
-            return res.status(400).json({ success: false, message: "Overdue notification recipients must be members of the PC department." });
-        }
-        const scheduleError = validateSchedule(update);
-        if (scheduleError) {
-            return res.status(400).json({ success: false, message: scheduleError });
-        }
+        const validationError = await validateChecklist(update);
+        if (validationError) return res.status(400).json({ success: false, message: validationError });
         if (update.taskName !== undefined) update.taskName = update.taskName.trim();
         if (update.message !== undefined) update.message = update.message.trim();
 
