@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const Checklists = require("../models/cheacklist");
 const Users = require("../models/usermodel");
+const ChecklistResponseNotification = require("../models/checklistResponseNotification");
 const XLSX = require("xlsx");
 
 const checklistFields = [
@@ -155,27 +156,84 @@ const submitChecklistResponse = async (req, res) => {
             return res.status(400).json({ success: false, message: "Invalid checklist ID." });
         }
         const response = typeof req.body.response === "string" ? req.body.response.trim() : "";
+        const details = typeof req.body.details === "string" ? req.body.details.trim() : "";
         if (!response) {
             return res.status(400).json({ success: false, message: "Response cannot be empty." });
         }
         if (response.length > 2000) {
             return res.status(400).json({ success: false, message: "Response cannot exceed 2,000 characters." });
         }
+        if (details.length > 4000) {
+            return res.status(400).json({ success: false, message: "Response details cannot exceed 4,000 characters." });
+        }
+        if (!Array.isArray(req.body.pcRecipients) ||
+            req.body.pcRecipients.some(id => !mongoose.isValidObjectId(id))) {
+            return res.status(400).json({ success: false, message: "PC recipients must be a list of valid team member IDs." });
+        }
 
         const checklist = await Checklists.findById(req.params.id);
         if (!checklist) {
             return res.status(404).json({ success: false, message: "Checklist not found." });
         }
-        checklist.responses.push({
-            response,
-            submittedBy: typeof req.body.submittedBy === "string" ? req.body.submittedBy.trim() : ""
+        const assignedByName = String(checklist.assignedBy || "").split("·")[0].trim();
+        const assignedByPattern = assignedByName
+            ? new RegExp(`^${assignedByName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i")
+            : null;
+        const selectedPCIds = [...new Set(req.body.pcRecipients.map(String))];
+        const [selectedPCMembers, assignedPeople, assigningPeople] = await Promise.all([
+            Users.find({ _id: { $in: selectedPCIds }, department: /^pc$/i }).select("_id name department"),
+            Users.find({
+                _id: { $in: [checklist.assignedTo, checklist.assignPC].filter(Boolean) }
+            }).select("_id name department"),
+            assignedByPattern
+                ? Users.find({ name: assignedByPattern }).select("_id name department")
+                : Promise.resolve([])
+        ]);
+        if (selectedPCMembers.length !== selectedPCIds.length) {
+            return res.status(400).json({ success: false, message: "One or more selected recipients are not PC team members." });
+        }
+        const recipientsById = new Map();
+        [...selectedPCMembers, ...assignedPeople, ...assigningPeople].forEach(user => {
+            recipientsById.set(String(user._id), user);
         });
+        const recipients = [...recipientsById.values()];
+        const submittedResponse = {
+            response,
+            details,
+            submittedBy: typeof req.body.submittedBy === "string" ? req.body.submittedBy.trim() : "",
+            sentTo: recipients.map(user => ({
+                userId: user._id,
+                name: user.name,
+                department: user.department
+            }))
+        };
+        checklist.responses.push(submittedResponse);
         await checklist.save();
+
+        const savedResponse = checklist.responses[checklist.responses.length - 1];
+        const notificationResults = await Promise.allSettled(recipients.map(recipient =>
+            ChecklistResponseNotification.create({
+                recipient: recipient._id,
+                checklistId: checklist._id,
+                responseId: savedResponse._id,
+                title: "Checklist response submitted",
+                message: `${savedResponse.submittedBy || "A team member"} submitted a response for "${checklist.taskName}". Response: ${response}${details ? ` Details: ${details}` : ""}`
+            })
+        ));
+        const failedNotifications = notificationResults.filter(result => result.status === "rejected");
+        failedNotifications.forEach(result => {
+            console.error("Checklist response notification error:", result.reason);
+        });
 
         return res.status(201).json({
             success: true,
             message: "Checklist response submitted.",
-            data: checklist.responses[checklist.responses.length - 1]
+            data: savedResponse,
+            notificationStatus: {
+                recipients: recipients.length,
+                sent: notificationResults.length - failedNotifications.length,
+                failed: failedNotifications.length
+            }
         });
     } catch (error) {
         console.error("Error submitting checklist response:", error);

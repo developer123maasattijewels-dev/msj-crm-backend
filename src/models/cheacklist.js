@@ -37,7 +37,13 @@ const checklistSchema = new mongoose.Schema({
     selectNotifyDoerWhenTaskDone: { type: Boolean, default: false },
     responses: [{
         response: { type: String, required: true, trim: true },
+        details: { type: String, trim: true, default: "" },
         submittedBy: { type: String, trim: true, default: "" },
+        sentTo: [{
+            userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+            name: { type: String, trim: true },
+            department: { type: String, trim: true }
+        }],
         submittedAt: { type: Date, default: Date.now }
     }],
     lastProcessedDate: { type: Date, default: null },
