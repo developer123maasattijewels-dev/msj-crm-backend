@@ -1,5 +1,20 @@
-const Users = require("../models/usermodel")
-const jwt = require("jsonwebtoken")
+const mongoose = require("mongoose");
+const jwt = require("jsonwebtoken");
+const Users = require("../models/usermodel");
+const { notifyUserWelcome } = require("../comman/notificationService");
+const { isValidEmail } = require("../comman/emailsender");
+
+const sanitizeUser = (user) => {
+    if (!user) return null;
+    const obj = typeof user.toObject === "function" ? user.toObject() : { ...user };
+    const hasAppPassword = Boolean(obj.appPassword && String(obj.appPassword).trim());
+    delete obj.password;
+    obj.senderEmail = obj.senderEmail || "";
+    obj.appPassword = "";
+    obj.hasAppPassword = hasAppPassword;
+    obj.emailNotificationsEnabled = obj.emailNotificationsEnabled !== false;
+    return obj;
+};
 
 const add = async (req, res) => {
     try {
@@ -8,11 +23,18 @@ const add = async (req, res) => {
             email,
             department,
             designation,
+            subCategory,
             role,
-            password
+            password,
+            image,
+            senderEmail,
+            appPassword,
+            emailNotificationsEnabled
         } = req.body;
 
-        if (!name || !email || !department || !designation || !role || !password) {
+        const finalDesignation = (designation || subCategory || "").trim();
+
+        if (!name || !email || !department || !finalDesignation || !role || !password) {
             return res.status(400).json({
                 success: false,
                 message: 'All required fields must be provided.'
@@ -32,16 +54,24 @@ const add = async (req, res) => {
         const user = await Users.create({
             name: name.trim(),
             email: email.trim().toLowerCase(),
-            department,
-            designation,
+            department: department.trim(),
+            designation: finalDesignation,
             role,
-            password
+            password,
+            image: typeof image === "string" ? image.trim() : "",
+            senderEmail: typeof senderEmail === "string" ? senderEmail.trim().toLowerCase() : "",
+            appPassword: typeof appPassword === "string" ? appPassword.trim() : "",
+            emailNotificationsEnabled: emailNotificationsEnabled !== false
+        });
+
+        notifyUserWelcome({ user }).catch((err) => {
+            console.error("Welcome email error:", err);
         });
 
         return res.status(201).json({
             success: true,
             message: 'User created successfully.',
-            data: user
+            data: sanitizeUser(user)
         });
 
     } catch (error) {
@@ -53,27 +83,44 @@ const add = async (req, res) => {
     }
 };
 
-const get = async (req, res) => {
+const get = async (_req, res) => {
     try {
-        const get = await Users.find().select('-password')
-        res.status(201).json({ message: 'User Get Succesfully', User: get })
+        const users = await Users.find().select('-password');
+        const sanitized = users.map(sanitizeUser);
+        res.status(200).json({ message: 'User Get Succesfully', User: sanitized });
     } catch (error) {
-        res.status(500).json({ message: 'User not Succesfully' })
+        res.status(500).json({ message: 'User not Succesfully' });
     }
-}
+};
+
 const getByid = async (req, res) => {
     try {
-        const { id } = req.params
+        const { id } = req.params;
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid user ID.' });
+        }
 
-        const getUsers = await Users.findById(id)
-        res.status(201).json({ message: 'User get Successfully', User: getUsers })
+        const user = await Users.findById(id).select('-password');
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found.' });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: 'User get Successfully',
+            User: sanitizeUser(user)
+        });
     } catch (error) {
-        res.status(500).json({ message: 'User Not get Successfully', error })
+        return res.status(500).json({ success: false, message: 'User Not get Successfully', error: error.message });
     }
-}
+};
+
 const update = async (req, res) => {
     try {
         const { id } = req.params;
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid user ID.' });
+        }
 
         const allowedFields = [
             'name',
@@ -81,7 +128,9 @@ const update = async (req, res) => {
             'department',
             'designation',
             'role',
-            'image'
+            'image',
+            'senderEmail',
+            'emailNotificationsEnabled'
         ];
 
         const updates = {};
@@ -90,6 +139,12 @@ const update = async (req, res) => {
             if (Object.prototype.hasOwnProperty.call(req.body, field)) {
                 updates[field] = req.body[field];
             }
+        }
+
+        if (req.body.clearAppPassword === true) {
+            updates.appPassword = '';
+        } else if (typeof req.body.appPassword === 'string' && req.body.appPassword.trim()) {
+            updates.appPassword = req.body.appPassword.trim();
         }
 
         if (Object.keys(updates).length === 0) {
@@ -116,8 +171,28 @@ const update = async (req, res) => {
                     message: 'Email must be a valid non-empty string.'
                 });
             }
-
             updates.email = updates.email.trim().toLowerCase();
+        }
+
+        if (updates.senderEmail !== undefined) {
+            if (typeof updates.senderEmail !== 'string') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Sender email must be a string.'
+                });
+            }
+            const trimmedSender = updates.senderEmail.trim().toLowerCase();
+            if (trimmedSender && !isValidEmail(trimmedSender)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Enter a valid sender email address.'
+                });
+            }
+            updates.senderEmail = trimmedSender;
+        }
+
+        if (updates.emailNotificationsEnabled !== undefined) {
+            updates.emailNotificationsEnabled = Boolean(updates.emailNotificationsEnabled);
         }
 
         for (const field of ['department', 'designation', 'role']) {
@@ -146,7 +221,7 @@ const update = async (req, res) => {
                 new: true,
                 runValidators: true
             }
-        );
+        ).select('-password');
 
         if (!user) {
             return res.status(404).json({
@@ -158,17 +233,17 @@ const update = async (req, res) => {
         return res.status(200).json({
             success: true,
             message: 'User updated successfully.',
-            data: user
+            data: sanitizeUser(user)
         });
 
     } catch (error) {
-
         return res.status(500).json({
             success: false,
             message: 'An unexpected error occurred while updating the user.'
         });
     }
 };
+
 const deleteUsers = async (req, res) => {
     try {
         const { id } = req.params;
@@ -232,9 +307,9 @@ const login = async (req, res) => {
         }
 
         // Role verification (if role is specified and not auto/all)
-        const isRoleFilter = role && 
-            role.toLowerCase() !== 'all' && 
-            role.toLowerCase() !== 'auto' && 
+        const isRoleFilter = role &&
+            role.toLowerCase() !== 'all' &&
+            role.toLowerCase() !== 'auto' &&
             role.toLowerCase() !== 'auto-detect';
 
         if (isRoleFilter && user.role && user.role.toLowerCase() !== role.trim().toLowerCase()) {
@@ -245,10 +320,10 @@ const login = async (req, res) => {
         }
 
         // Department verification (if department is specified and not auto/all)
-        const isDeptFilter = department && 
-            department.toLowerCase() !== 'all' && 
-            department.toLowerCase() !== 'all departments' && 
-            department.toLowerCase() !== 'auto' && 
+        const isDeptFilter = department &&
+            department.toLowerCase() !== 'all' &&
+            department.toLowerCase() !== 'all departments' &&
+            department.toLowerCase() !== 'auto' &&
             department.toLowerCase() !== 'auto-detect';
 
         if (isDeptFilter && user.department && user.department.toLowerCase() !== department.trim().toLowerCase()) {
@@ -267,8 +342,7 @@ const login = async (req, res) => {
             });
         }
 
-        const userObj = user.toObject();
-        delete userObj.password;
+        const userObj = sanitizeUser(user);
 
         // Ensure category and designation are always populated for downstream pages
         userObj.category = userObj.category || userObj.designation || category || designation || '';
@@ -289,4 +363,4 @@ const login = async (req, res) => {
     }
 };
 
-module.exports = { add, get, getByid, deleteUsers, update, login };
+module.exports = { add, get, getByid, deleteUsers, update, login, sanitizeUser };

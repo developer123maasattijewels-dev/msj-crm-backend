@@ -4,17 +4,20 @@ const Leads = require("../models/Leads");
 const Users = require("../models/usermodel");
 const Checklists = require("../models/cheacklist");
 const Notification = require("../models/notificationModel");
+const { notifyChecklistEvent, notifyTaskEvent } = require("../comman/notificationService");
 
 const isCompletedStatus = status => String(status || "").toLowerCase() === "completed";
 
-const notifyChecklistCompletion = async task => {
+const notifyChecklistCompletion = async (task, senderUserId) => {
     if (!task.checklistId) return;
 
     try {
         const checklist = await Checklists.findById(task.checklistId)
-            .select("notifyOnCompletionUsers");
+            .populate("notifyOnCompletionUsers", "name email emailNotificationsEnabled")
+            .populate("auditor", "name email emailNotificationsEnabled")
+            .populate("assignedTo", "name email emailNotificationsEnabled");
         const recipients = [...new Set(
-            (checklist?.notifyOnCompletionUsers || []).map(userId => String(userId))
+            (checklist?.notifyOnCompletionUsers || []).map(user => String(user._id || user))
         )];
 
         for (const recipient of recipients) {
@@ -31,6 +34,16 @@ const notifyChecklistCompletion = async task => {
                     console.error("Checklist completion notification error:", error);
                 }
             }
+        }
+
+        if (checklist) {
+            await notifyChecklistEvent({
+                checklist,
+                eventType: "completed",
+                task,
+                createInApp: false,
+                senderUserId
+            });
         }
     } catch (error) {
         console.error("Unable to load checklist completion recipients:", error);
@@ -158,6 +171,14 @@ const add = async (req, res) => {
         const populatedTask = await Tasks.findById(task._id)
             .populate("relatedLead", "name phone email source interestedProduct status")
             .populate("assignedTo", "name email designation department role image");
+
+        if (populatedTask?.assignedTo) {
+            await notifyTaskEvent({
+                task: populatedTask,
+                eventType: "assigned",
+                senderUserId: req.body.senderUserId
+            });
+        }
 
         return res.status(201).json({
             success: true,
@@ -312,6 +333,7 @@ const update = async (req, res) => {
         }
 
         const wasCompleted = isCompletedStatus(task.status);
+        const previousAssignedTo = String(task.assignedTo || "");
         const {
             title,
             description,
@@ -369,12 +391,31 @@ const update = async (req, res) => {
 
         await task.save();
         if (!wasCompleted && isCompletedStatus(task.status)) {
-            await notifyChecklistCompletion(task);
+            if (task.checklistId) {
+                await notifyChecklistCompletion(task, req.body.senderUserId);
+            } else {
+                await notifyTaskEvent({
+                    task,
+                    eventType: "completed",
+                    senderUserId: req.body.senderUserId
+                });
+            }
         }
 
         const updated = await Tasks.findById(task._id)
             .populate("relatedLead", "name phone email source interestedProduct status")
             .populate("assignedTo", "name email designation department role image");
+
+        if (
+            updated?.assignedTo &&
+            String(updated.assignedTo._id || updated.assignedTo) !== previousAssignedTo
+        ) {
+            await notifyTaskEvent({
+                task: updated,
+                eventType: "assigned",
+                senderUserId: req.body.senderUserId
+            });
+        }
 
         return res.status(200).json({
             success: true,
@@ -427,7 +468,15 @@ const updateStatus = async (req, res) => {
 
         await task.save();
         if (!wasCompleted && isCompletedStatus(task.status)) {
-            await notifyChecklistCompletion(task);
+            if (task.checklistId) {
+                await notifyChecklistCompletion(task, req.body.senderUserId);
+            } else {
+                await notifyTaskEvent({
+                    task,
+                    eventType: "completed",
+                    senderUserId: req.body.senderUserId
+                });
+            }
         }
 
         const updated = await Tasks.findById(task._id)

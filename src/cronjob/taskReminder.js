@@ -3,6 +3,7 @@ const cron = require("node-cron");
 const Tasks = require("../models/taskmodel");
 const Notification = require("../models/notificationModel");
 const Users = require("../models/usermodel");
+const { notifyTaskEvent } = require("../comman/notificationService");
 
 const createAndSend = async ({
     task,
@@ -26,6 +27,18 @@ const createAndSend = async ({
             });
 
             console.log(`${type} notification sent for task ${task.taskId}`);
+
+            const recipientUser = await Users.findById(recipient)
+                .select("_id name email emailNotificationsEnabled")
+                .lean();
+            if (recipientUser) {
+                await notifyTaskEvent({
+                    task,
+                    eventType: type === "task_overdue" ? "overdue" : "reminder",
+                    customRecipients: [recipientUser],
+                    createInApp: false
+                });
+            }
         } catch (error) {
             if (error.code !== 11000) {
                 console.error("Reminder error:", error);

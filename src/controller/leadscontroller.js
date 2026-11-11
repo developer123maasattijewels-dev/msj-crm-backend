@@ -1,5 +1,6 @@
 const mongoose = require("mongoose")
 const leadsmodel = require("../models/Leads")
+const { notifyLeadEvent } = require("../comman/notificationService")
 
 const XLSX = require("xlsx");
 
@@ -22,6 +23,12 @@ const addLeads = async (req, res) => {
             notes,
         })
 
+        if (newlead.assignedTo) {
+            await notifyLeadEvent({
+                lead: newlead,
+                senderUserId: req.user?._id
+            });
+        }
 
         res.status(200).json({ message: 'Leads added Successfully', leadsdata: newlead })
 
@@ -148,6 +155,17 @@ const updateLeads = async (req, res) => {
             return res.status(404).json({
                 success: false,
                 message: 'Lead not found'
+            });
+        }
+
+        if (
+            updates.assignedTo &&
+            String(updates.assignedTo).trim() &&
+            updates.assignedTo !== oldLead.assignedTo
+        ) {
+            await notifyLeadEvent({
+                lead: updatedLead,
+                senderUserId: req.user?._id
             });
         }
 

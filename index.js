@@ -13,6 +13,7 @@ const notification = require('./src/routes/notificationRoutes')
 const interview = require('./src/routes/interview')
 const accessRoutes = require("./src/routes/access");
 const checklists = require('./src/routes/checklistRoutes')
+const profileRoutes = require('./src/routes/profileRoutes')
 const { startTaskReminderCron } = require('./src/cronjob/taskReminder')
 const { startChecklistScheduler } = require('./src/cronjob/checklistScheduler')
 
@@ -34,6 +35,7 @@ app.use('/interview', interview)
 app.use('/checklists', checklists)
 
 app.use("/access", accessRoutes);
+app.use("/profile", profileRoutes);
 
 
 

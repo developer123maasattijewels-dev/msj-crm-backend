@@ -5,6 +5,7 @@ const mongoose = require("mongoose");
 const fs = require("fs");
 const path = require("path");
 const Interview = require("../models/interviewformmodel");
+const { notifyInterviewEvent } = require("../comman/notificationService");
 
 const removeUploadedResume = async (file) => {
     if (!file) return;
@@ -64,6 +65,11 @@ exports.createInterview = async (req, res) => {
             createdBy: req.user?._id || null,
         });
 
+        await notifyInterviewEvent({
+            candidate,
+            eventType: "created",
+            senderUserId: req.user?._id
+        });
 
         res.status(201).json({
             success: true,
@@ -362,6 +368,20 @@ exports.updateInterview = async (req, res) => {
             { $set: updates },
             { new: true, runValidators: true }
         );
+
+        const statusOrScheduleChanged =
+            (updates.hiringStatus && updates.hiringStatus !== candidate.hiringStatus) ||
+            (updates["interview.interviewStatus"] && updates["interview.interviewStatus"] !== candidate.interview?.interviewStatus) ||
+            (updates["interview.interviewDate"] &&
+                String(updates["interview.interviewDate"]) !== String(candidate.interview?.interviewDate || ""));
+
+        if (statusOrScheduleChanged) {
+            await notifyInterviewEvent({
+                candidate: updatedCandidate,
+                eventType: "updated",
+                senderUserId: req.user?._id
+            });
+        }
 
         if (req.file && previousResumeUrl) {
             try {

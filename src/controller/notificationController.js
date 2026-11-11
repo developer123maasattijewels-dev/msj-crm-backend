@@ -2,6 +2,7 @@
 const mongoose = require("mongoose");
 const Notification = require("../models/notificationModel");
 const ChecklistResponseNotification = require("../models/checklistResponseNotification");
+const ActivityNotification = require("../models/activityNotificationModel");
 
 
 const createNotification = async (req, res) => {
@@ -54,7 +55,14 @@ const getNotifications = async (req, res) => {
                 message: "Valid userId is required"
             });
         }
-        const [taskNotifications, responseNotifications, taskUnreadCount, responseUnreadCount] = await Promise.all([
+        const [
+            taskNotifications,
+            responseNotifications,
+            activityNotifications,
+            taskUnreadCount,
+            responseUnreadCount,
+            activityUnreadCount
+        ] = await Promise.all([
             Notification.find({ recipient: userId })
                 .populate("task", "taskId title dueAt dueDate dueTime")
                 .sort({ createdAt: -1 })
@@ -64,13 +72,22 @@ const getNotifications = async (req, res) => {
                 .sort({ createdAt: -1 })
                 .limit(50)
                 .lean(),
+            ActivityNotification.find({ recipient: userId })
+                .sort({ createdAt: -1 })
+                .limit(50)
+                .lean(),
             Notification.countDocuments({ recipient: userId, isRead: false }),
-            ChecklistResponseNotification.countDocuments({ recipient: userId, isRead: false })
+            ChecklistResponseNotification.countDocuments({ recipient: userId, isRead: false }),
+            ActivityNotification.countDocuments({ recipient: userId, isRead: false })
         ]);
-        const notifications = [...taskNotifications, ...responseNotifications]
+        const notifications = [
+            ...taskNotifications,
+            ...responseNotifications,
+            ...activityNotifications
+        ]
             .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))
             .slice(0, 50);
-        const unreadCount = taskUnreadCount + responseUnreadCount;
+        const unreadCount = taskUnreadCount + responseUnreadCount + activityUnreadCount;
 
         return res.status(200).json({
             success: true,
@@ -123,6 +140,13 @@ const markAsRead = async (req, res) => {
                 { new: true }
             );
         }
+        if (!updatedNotification) {
+            updatedNotification = await ActivityNotification.findOneAndUpdate(
+                { _id: id, recipient: userId },
+                { isRead: true, readAt: new Date() },
+                { new: true }
+            );
+        }
 
         if (!updatedNotification) {
             return res.status(404).json({
@@ -161,6 +185,10 @@ const markAllAsRead = async (req, res) => {
                 { isRead: true, readAt: new Date() }
             ),
             ChecklistResponseNotification.updateMany(
+                { recipient: userId, isRead: false },
+                { isRead: true, readAt: new Date() }
+            ),
+            ActivityNotification.updateMany(
                 { recipient: userId, isRead: false },
                 { isRead: true, readAt: new Date() }
             )

@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const Checklists = require("../models/cheacklist");
 const Users = require("../models/usermodel");
 const ChecklistResponseNotification = require("../models/checklistResponseNotification");
+const { notifyChecklistEvent } = require("../comman/notificationService");
 const XLSX = require("xlsx");
 
 const checklistFields = [
@@ -116,7 +117,12 @@ const addChecklist = async (req, res) => {
             message: typeof message === "string" ? message.trim() : ""
         });
         const data = await populatePeople(Checklists.findById(checklist._id));
-        return res.status(201).json({ success: true, data });
+        const notificationStatus = await notifyChecklistEvent({
+            checklist: data,
+            eventType: "created",
+            senderUserId: req.body.senderUserId
+        });
+        return res.status(201).json({ success: true, data, notificationStatus });
     } catch (error) {
         console.error("Error creating checklist:", error);
         const status = error.name === "ValidationError" || error.name === "CastError" ? 400 : 500;
@@ -181,12 +187,12 @@ const submitChecklistResponse = async (req, res) => {
             : null;
         const selectedPCIds = [...new Set(req.body.pcRecipients.map(String))];
         const [selectedPCMembers, assignedPeople, assigningPeople] = await Promise.all([
-            Users.find({ _id: { $in: selectedPCIds }, department: /^pc$/i }).select("_id name department"),
+            Users.find({ _id: { $in: selectedPCIds }, department: /^pc$/i }).select("_id name email department emailNotificationsEnabled"),
             Users.find({
-                _id: { $in: [checklist.assignedTo, checklist.assignPC].filter(Boolean) }
-            }).select("_id name department"),
+                _id: { $in: [checklist.assignedTo, checklist.assignPC, checklist.auditor].filter(Boolean) }
+            }).select("_id name email department emailNotificationsEnabled"),
             assignedByPattern
-                ? Users.find({ name: assignedByPattern }).select("_id name department")
+                ? Users.find({ name: assignedByPattern }).select("_id name email department emailNotificationsEnabled")
                 : Promise.resolve([])
         ]);
         if (selectedPCMembers.length !== selectedPCIds.length) {
@@ -225,6 +231,15 @@ const submitChecklistResponse = async (req, res) => {
             console.error("Checklist response notification error:", result.reason);
         });
 
+        const emailNotification = await notifyChecklistEvent({
+            checklist,
+            eventType: "response",
+            responseEntry: savedResponse,
+            customRecipients: recipients,
+            createInApp: false,
+            senderUserId: req.body.senderUserId
+        });
+
         return res.status(201).json({
             success: true,
             message: "Checklist response submitted.",
@@ -232,7 +247,8 @@ const submitChecklistResponse = async (req, res) => {
             notificationStatus: {
                 recipients: recipients.length,
                 sent: notificationResults.length - failedNotifications.length,
-                failed: failedNotifications.length
+                failed: failedNotifications.length,
+                email: emailNotification?.email || null
             }
         });
     } catch (error) {
@@ -461,7 +477,16 @@ const importChecklistsExcel = async (req, res) => {
 
         // Import valid rows
         if (imported.length) {
-            await Checklists.insertMany(imported, { ordered: true });
+            const insertedDocs = await Checklists.insertMany(imported, { ordered: true });
+            Promise.allSettled(
+                insertedDocs.map(doc =>
+                    notifyChecklistEvent({
+                        checklist: doc,
+                        eventType: "created",
+                        senderUserId: req.body?.senderUserId
+                    })
+                )
+            ).catch(err => console.error("Imported checklist notifications error:", err));
         }
 
         return res.status(200).json({
@@ -494,6 +519,11 @@ const updateChecklist = async (req, res) => {
         if (update.taskName !== undefined) update.taskName = update.taskName.trim();
         if (update.message !== undefined) update.message = update.message.trim();
 
+        const previous = await Checklists.findById(req.params.id).select("assignedTo auditor assignPC").lean();
+        if (!previous) {
+            return res.status(404).json({ success: false, message: "Checklist not found." });
+        }
+
         const checklist = await Checklists.findByIdAndUpdate(
             req.params.id,
             { $set: update },
@@ -503,6 +533,20 @@ const updateChecklist = async (req, res) => {
             return res.status(404).json({ success: false, message: "Checklist not found." });
         }
         const data = await populatePeople(Checklists.findById(checklist._id));
+
+        const assigneeChanged =
+            String(previous.assignedTo || "") !== String(checklist.assignedTo || "") ||
+            String(previous.auditor || "") !== String(checklist.auditor || "") ||
+            String(previous.assignPC || "") !== String(checklist.assignPC || "");
+
+        if (assigneeChanged) {
+            await notifyChecklistEvent({
+                checklist: data,
+                eventType: "assigned",
+                senderUserId: req.body.senderUserId
+            });
+        }
+
         return res.status(200).json({ success: true, data });
     } catch (error) {
         console.error("Error updating checklist:", error);

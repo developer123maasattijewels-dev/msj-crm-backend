@@ -1,6 +1,7 @@
 const cron = require("node-cron");
 const Checklists = require("../models/cheacklist");
 const Tasks = require("../models/taskmodel");
+const { notifyChecklistEvent } = require("../comman/notificationService");
 
 const timezone = "Asia/Kolkata";
 
@@ -91,7 +92,7 @@ const generateOccurrence = async (checklist, dateKey) => {
     const reminderDays = Number(checklist.setReminderBeforeDays) || 0;
 
     try {
-        await Tasks.create({
+        const createdTask = await Tasks.create({
             title: checklist.taskName,
             description: checklist.message,
             taskType: "Checklist",
@@ -114,6 +115,11 @@ const generateOccurrence = async (checklist, dateKey) => {
             checklistOccurrenceKey: occurrenceKey
         });
         console.log(`Recurring checklist task created: ${occurrenceKey}`);
+        await notifyChecklistEvent({
+            checklist,
+            eventType: "due",
+            task: createdTask
+        });
     } catch (error) {
         if (error.code === 11000) return;
         throw error;

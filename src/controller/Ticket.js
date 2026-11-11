@@ -1,7 +1,8 @@
 const mongoose = require('mongoose');
 const Tickets = require('../models/ticketmodal');
+const { notifyTicketEvent } = require('../comman/notificationService');
 
-const generateTicketNumber = async () => {
+const generateTicketNumberWithPrefix = async (prefix = 'TKT') => {
   let unique = false;
   let newTicketNumber = '';
   let attempts = 0;
@@ -9,16 +10,18 @@ const generateTicketNumber = async () => {
   while (!unique && attempts < 20) {
     attempts++;
     const random = Math.floor(1000 + Math.random() * 9000);
-    newTicketNumber = `TKT-${random}`;
+    newTicketNumber = `${prefix}-${random}`;
     const existing = await Tickets.findOne({ ticketNumber: newTicketNumber });
     if (!existing) unique = true;
   }
 
   if (!unique) {
-    newTicketNumber = `TKT-${Date.now().toString().slice(-6)}`;
+    newTicketNumber = `${prefix}-${Date.now().toString().slice(-6)}`;
   }
   return newTicketNumber;
 };
+
+const generateTicketNumber = () => generateTicketNumberWithPrefix('TKT');
 
 const createTicket = async (req, res) => {
   try {
@@ -27,6 +30,7 @@ const createTicket = async (req, res) => {
       type = 'help',
       subject,
       requester,
+      requesterEmail = '',
       department,
       category = '',
       priority = 'Medium',
@@ -92,6 +96,7 @@ const createTicket = async (req, res) => {
       type: safeType,
       subject: computedSubject,
       requester: requester.trim(),
+      requesterEmail: typeof requesterEmail === 'string' ? requesterEmail.trim().toLowerCase() : '',
       department: department.trim(),
       category: (category || details?.category || '').trim(),
       priority: priority || 'Medium',
@@ -105,11 +110,18 @@ const createTicket = async (req, res) => {
       replies: [],
     });
 
+    const notificationStatus = await notifyTicketEvent({
+      ticket,
+      eventType: safeType === 'po' ? 'po_created' : 'created',
+      senderUserId: req.body.senderUserId,
+    });
+
     return res.status(201).json({
       success: true,
       message: 'Ticket created successfully.',
       ticket,
       data: ticket,
+      notificationStatus,
     });
   } catch (error) {
     console.error('Create Ticket Error:', error);
@@ -261,7 +273,7 @@ const getTicketById = async (req, res) => {
 const updateTicketStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, user = 'Admin' } = req.body;
+    const { status, user = 'Admin', assignee, approvalBy } = req.body;
 
     const allowedStatuses = ['Open', 'In Progress', 'Resolved', 'Closed', 'Approved'];
     if (!status || !allowedStatuses.includes(status)) {
@@ -283,6 +295,14 @@ const updateTicketStatus = async (req, res) => {
 
     const oldStatus = ticket.status;
     ticket.status = status;
+    if (typeof assignee === 'string' && assignee.trim()) {
+      ticket.assignee = assignee.trim();
+    }
+    if (typeof approvalBy === 'string' && approvalBy.trim()) {
+      ticket.approvalBy = approvalBy.trim();
+    } else if (status === 'Approved' && !ticket.approvalBy) {
+      ticket.approvalBy = user;
+    }
 
     // Add activity log reply for the status change
     const timeString = new Date().toLocaleTimeString([], {
@@ -298,11 +318,22 @@ const updateTicketStatus = async (req, res) => {
 
     await ticket.save();
 
+    const notificationStatus = oldStatus !== status
+      ? await notifyTicketEvent({
+          ticket,
+          eventType: 'status_updated',
+          actorName: user,
+          oldStatus,
+          senderUserId: req.body.senderUserId,
+        })
+      : null;
+
     return res.status(200).json({
       success: true,
       message: `Status updated to ${status}.`,
       ticket,
       data: ticket,
+      notificationStatus,
     });
   } catch (error) {
     console.error('Update Ticket Status Error:', error);
@@ -353,12 +384,21 @@ const addReply = async (req, res) => {
     ticket.replies.push(newReply);
     await ticket.save();
 
+    const notificationStatus = await notifyTicketEvent({
+      ticket,
+      eventType: 'reply',
+      actorName: user,
+      noteText: text.trim(),
+      senderUserId: req.body.senderUserId,
+    });
+
     return res.status(200).json({
       success: true,
       message: 'Note added to activity log.',
       reply: newReply,
       replies: ticket.replies,
       ticket,
+      notificationStatus,
     });
   } catch (error) {
     console.error('Add Ticket Reply Error:', error);
@@ -376,8 +416,18 @@ const updateTicket = async (req, res) => {
     const updateData = { ...req.body };
     delete updateData._id;
     delete updateData.createdAt;
+    delete updateData.senderUserId;
+    delete updateData.updatedBy;
 
     const query = mongoose.isValidObjectId(id) ? { _id: id } : { ticketNumber: id };
+
+    const existingTicket = await Tickets.findOne(query).lean();
+    if (!existingTicket) {
+      return res.status(404).json({
+        success: false,
+        message: 'Ticket not found.',
+      });
+    }
 
     const updatedTicket = await Tickets.findOneAndUpdate(
       query,
@@ -385,10 +435,28 @@ const updateTicket = async (req, res) => {
       { new: true, runValidators: true }
     );
 
-    if (!updatedTicket) {
-      return res.status(404).json({
-        success: false,
-        message: 'Ticket not found.',
+    if (
+      updateData.assignee !== undefined &&
+      updateData.assignee !== existingTicket.assignee &&
+      updateData.assignee &&
+      !/^unassigned$/i.test(updateData.assignee)
+    ) {
+      await notifyTicketEvent({
+        ticket: updatedTicket,
+        eventType: 'assigned',
+        actorName: req.body.updatedBy || 'Admin',
+        senderUserId: req.body.senderUserId,
+      });
+    } else if (
+      updateData.status !== undefined &&
+      updateData.status !== existingTicket.status
+    ) {
+      await notifyTicketEvent({
+        ticket: updatedTicket,
+        eventType: 'status_updated',
+        actorName: req.body.updatedBy || 'Admin',
+        oldStatus: existingTicket.status,
+        senderUserId: req.body.senderUserId,
       });
     }
 
@@ -435,26 +503,14 @@ const deleteTicket = async (req, res) => {
 };
 
 // ─── Generate DMD ticket number ───────────────────────────────────────────────
-const generateDemandNumber = async () => {
-  let unique = false;
-  let number = '';
-  let attempts = 0;
-  while (!unique && attempts < 20) {
-    attempts++;
-    const rand = Math.floor(1000 + Math.random() * 9000);
-    number = `DMD-${rand}`;
-    const existing = await Tickets.findOne({ ticketNumber: number });
-    if (!existing) unique = true;
-  }
-  if (!unique) number = `DMD-${Date.now().toString().slice(-6)}`;
-  return number;
-};
+const generateDemandNumber = () => generateTicketNumberWithPrefix('DMD');
 
 // ─── Create Demand Ticket ─────────────────────────────────────────────────────
 const createDemandTicket = async (req, res) => {
   try {
     const {
       requester,
+      requesterEmail = '',
       department,
       targetDepartment = 'Inventory & Bullion Stores',
       priority = 'Medium',
@@ -498,8 +554,9 @@ const createDemandTicket = async (req, res) => {
     }
 
     const isPO = req.body.type === 'po';
-    const rand = Math.floor(1000 + Math.random() * 9000);
-    const ticketNumber = isPO ? `PO-${rand}` : await generateDemandNumber();
+    const ticketNumber = isPO
+      ? await generateTicketNumberWithPrefix('PO')
+      : await generateDemandNumber();
     const parsedDate = requiredDate ? new Date(requiredDate) : null;
 
     if (isPO) {
@@ -517,6 +574,7 @@ const createDemandTicket = async (req, res) => {
       type: isPO ? 'po' : 'demand',
       subject: req.body.subject || subject,
       requester: requester.trim(),
+      requesterEmail: typeof requesterEmail === 'string' ? requesterEmail.trim().toLowerCase() : '',
       department: department.trim(),
       category: isPO ? 'Purchase Order' : 'Demand Ticket',
       priority,
@@ -525,26 +583,33 @@ const createDemandTicket = async (req, res) => {
       description: description.trim() || subject,
       assignee: assignee || 'Unassigned',
       details: {
+        ...(req.body.details || {}),
         requesterDepartment: department.trim(),
         targetDepartment,
         demandItems,
         images: req.body.images || req.body.details?.images || [],
-        poNumber: req.body.poNumber || '',
-        vendorName: req.body.vendorName || '',
-        paymentTerms: req.body.paymentTerms || '',
-        deliveryAddress: req.body.deliveryAddress || '',
-        ...(req.body.details || {}),
+        poNumber: req.body.poNumber || req.body.details?.poNumber || '',
+        vendorName: req.body.vendorName || req.body.details?.vendorName || '',
+        paymentTerms: req.body.paymentTerms || req.body.details?.paymentTerms || '',
+        deliveryAddress: req.body.deliveryAddress || req.body.details?.deliveryAddress || '',
       },
       quotations: [],
       approvalBy: '',
       replies: [],
     });
 
+    const notificationStatus = await notifyTicketEvent({
+      ticket,
+      eventType: isPO ? 'po_created' : 'created',
+      senderUserId: req.body.senderUserId,
+    });
+
     return res.status(201).json({
       success: true,
-      message: 'Demand ticket created successfully.',
+      message: isPO ? 'Purchase Order created successfully.' : 'Demand ticket created successfully.',
       ticket,
       data: ticket,
+      notificationStatus,
     });
   } catch (error) {
     console.error('Create Demand Ticket Error:', error);

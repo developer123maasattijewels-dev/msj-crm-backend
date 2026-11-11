@@ -42,6 +42,7 @@ const ticketSchema = new mongoose.Schema(
     },
 
     requester: { type: String, required: true, trim: true },
+    requesterEmail: { type: String, trim: true, lowercase: true, default: '' },
     department: { type: String, required: true },
     category: { type: String, default: '' },
     priority: {

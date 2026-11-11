@@ -36,6 +36,21 @@ const userSchema = new mongoose.Schema(
         image: {
             type: String,
             default: ''
+        },
+        senderEmail: {
+            type: String,
+            trim: true,
+            lowercase: true,
+            default: ''
+        },
+        appPassword: {
+            type: String,
+            trim: true,
+            default: ''
+        },
+        emailNotificationsEnabled: {
+            type: Boolean,
+            default: true
         }
     },
     {
