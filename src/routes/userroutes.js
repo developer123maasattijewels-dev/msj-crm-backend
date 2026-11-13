@@ -1,6 +1,15 @@
 const express = require('express');
 const authenticateUser = require('../middleware/authenticateUser');
-const { add, get, getByid, deleteUsers, update, login } = require('../controller/Users');
+const {
+    add,
+    get,
+    getByid,
+    deleteUsers,
+    update,
+    login,
+    registerAdmin,
+    loginAdmin
+} = require('../controller/Users');
 const {
     getEmailProfile,
     updateEmailProfile,
@@ -12,6 +21,9 @@ const router = express.Router();
 
 router.post('/login', login);
 router.post('/add', add);
+router.post('/register', registerAdmin);
+router.post('/admin/register', registerAdmin);
+router.post('/admin/login', loginAdmin);
 
 router.get('/email-profile', getEmailProfile);
 router.put('/email-profile', authenticateUser, requireEmailProfileAccess, updateEmailProfile);

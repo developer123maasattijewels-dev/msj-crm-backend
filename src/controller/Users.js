@@ -363,4 +363,134 @@ const login = async (req, res) => {
     }
 };
 
-module.exports = { add, get, getByid, deleteUsers, update, login, sanitizeUser };
+const registerAdmin = async (req, res) => {
+    try {
+        const {
+            name,
+            email,
+            password,
+            department,
+            designation,
+            image,
+            senderEmail,
+            appPassword
+        } = req.body;
+
+        if (!name || !email || !password) {
+            return res.status(400).json({
+                success: false,
+                message: 'Name, email, and password are required for admin registration.'
+            });
+        }
+
+        const normalizedEmail = email.trim().toLowerCase();
+        const existingUser = await Users.findOne({ email: normalizedEmail });
+
+        if (existingUser) {
+            return res.status(409).json({
+                success: false,
+                message: 'A user with this email already exists.'
+            });
+        }
+
+        const adminUser = await Users.create({
+            name: name.trim(),
+            email: normalizedEmail,
+            password: String(password).trim(),
+            department: (department || 'Administration').trim(),
+            designation: (designation || 'Administrator').trim(),
+            role: 'Admin',
+            image: typeof image === "string" ? image.trim() : "",
+            senderEmail: typeof senderEmail === "string" ? senderEmail.trim().toLowerCase() : "",
+            appPassword: typeof appPassword === "string" ? appPassword.trim() : "",
+            emailNotificationsEnabled: true
+        });
+
+        const token = jwt.sign(
+            { id: adminUser._id.toString(), role: 'Admin' },
+            process.env.JWT_SECRET || 'msj_secret_fallback',
+            { expiresIn: '7d' }
+        );
+
+        return res.status(201).json({
+            success: true,
+            message: 'Admin registered successfully.',
+            token,
+            user: sanitizeUser(adminUser)
+        });
+    } catch (error) {
+        console.error('Admin register error:', error);
+        return res.status(500).json({
+            success: false,
+            message: error.message || 'An unexpected error occurred during admin registration.'
+        });
+    }
+};
+
+const loginAdmin = async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        if (!email || !password) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email and password are required.'
+            });
+        }
+
+        const normalizedEmail = email.trim().toLowerCase();
+        const user = await Users.findOne({ email: normalizedEmail });
+
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid email or password.'
+            });
+        }
+
+        if (user.role?.toLowerCase() !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                message: 'Access restricted to administrators only.'
+            });
+        }
+
+        if (user.password !== password) {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid email or password.'
+            });
+        }
+
+        const token = jwt.sign(
+            { id: user._id.toString(), role: 'Admin' },
+            process.env.JWT_SECRET || 'msj_secret_fallback',
+            { expiresIn: '7d' }
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: 'Admin login successful.',
+            token,
+            user: sanitizeUser(user)
+        });
+    } catch (error) {
+        console.error('Admin login error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'An unexpected error occurred during admin login.'
+        });
+    }
+};
+
+module.exports = {
+    add,
+    get,
+    getByid,
+    deleteUsers,
+    update,
+    login,
+    registerAdmin,
+    loginAdmin,
+    sanitizeUser
+};
