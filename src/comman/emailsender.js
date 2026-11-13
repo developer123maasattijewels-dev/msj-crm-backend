@@ -1,3 +1,4 @@
+require("dotenv").config();
 const nodemailer = require("nodemailer");
 const EmailProfile = require("../models/emailProfileModel");
 const Users = require("../models/usermodel");
@@ -26,8 +27,8 @@ const getEmailCredentials = async ({ auth, senderUserId } = {}) => {
             configured: true,
             enabled: true,
             email: normalizeEmail(auth.user),
-            appPassword: auth.pass.replace(/\s+/g, ""),
-            senderName: (auth.senderName || defaultSenderName).trim()
+            appPassword: String(auth.pass).replace(/\s+/g, ""),
+            senderName: (auth.senderName || defaultSenderName).trim() || defaultSenderName
         };
     }
 
@@ -42,7 +43,7 @@ const getEmailCredentials = async ({ auth, senderUserId } = {}) => {
         };
     }
 
-    const senderName = (emailProfile?.senderName || defaultSenderName).trim();
+    const senderName = (emailProfile?.senderName || defaultSenderName).trim() || defaultSenderName;
 
     if (senderUserId) {
         const user = await Users.findById(senderUserId)
@@ -55,7 +56,7 @@ const getEmailCredentials = async ({ auth, senderUserId } = {}) => {
                 configured: true,
                 enabled: true,
                 email: normalizeEmail(user.senderEmail),
-                appPassword: user.appPassword.replace(/\s+/g, ""),
+                appPassword: String(user.appPassword).replace(/\s+/g, ""),
                 senderName: user.name ? `${user.name} · ${senderName}` : senderName
             };
         }
@@ -66,7 +67,7 @@ const getEmailCredentials = async ({ auth, senderUserId } = {}) => {
             configured: true,
             enabled: true,
             email: normalizeEmail(emailProfile.email),
-            appPassword: emailProfile.appPassword.replace(/\s+/g, ""),
+            appPassword: String(emailProfile.appPassword).replace(/\s+/g, ""),
             senderName
         };
     }
@@ -183,15 +184,29 @@ const buildEmailTemplate = ({
     return { html, text };
 };
 
-const sendEmail = async ({ to, subject, html, text, senderUserId, auth }) => {
-    const rawList = Array.isArray(to) ? to : [to];
+const sendEmail = async (toOrOptions, maybeSubject, maybeText, maybeHtml) => {
+    const options =
+        typeof toOrOptions === "object" && toOrOptions !== null && !Array.isArray(toOrOptions)
+            ? toOrOptions
+            : {
+                to: toOrOptions,
+                subject: maybeSubject,
+                text: maybeText,
+                html: maybeHtml
+            };
+
+    const rawList = Array.isArray(options.to) ? options.to : [options.to];
     const recipients = [...new Set(rawList.map(normalizeEmail).filter(isValidEmail))];
 
     if (!recipients.length) {
         return { sent: 0, failed: 0, skipped: true, reason: "No valid recipient email addresses." };
     }
 
-    const creds = await getEmailCredentials({ auth, senderUserId });
+    const creds = await getEmailCredentials({
+        auth: options.auth,
+        senderUserId: options.senderUserId
+    });
+
     if (!creds.enabled) {
         return { sent: 0, failed: 0, skipped: true, reason: "Email notifications are disabled." };
     }
@@ -207,9 +222,9 @@ const sendEmail = async ({ to, subject, html, text, senderUserId, auth }) => {
             transporter.sendMail({
                 from,
                 to: email,
-                subject,
-                text: text || "",
-                html: html || undefined
+                subject: options.subject || "Maa Satti Jewels CRM Notification",
+                text: options.text || "",
+                html: options.html || undefined
             })
         )
     );
@@ -218,13 +233,15 @@ const sendEmail = async ({ to, subject, html, text, senderUserId, auth }) => {
     let failed = 0;
     const errors = [];
 
-    results.forEach((result, i) => {
+    results.forEach((result, index) => {
         if (result.status === "fulfilled") {
             sent += 1;
         } else {
             failed += 1;
-            errors.push({ email: recipients[i], error: result.reason?.message || String(result.reason) });
-            console.error(`[EmailSender] Failed (${recipients[i]}):`, result.reason?.message || result.reason);
+            const email = recipients[index];
+            const message = result.reason?.message || String(result.reason || "Unknown email error");
+            errors.push({ email, error: message });
+            console.error(`[EmailSender] Failed (${email}):`, message);
         }
     });
 
@@ -307,11 +324,14 @@ const testEmailConnection = async ({ to, email, appPassword, senderName, senderU
     }
 };
 
-module.exports = {
-    sendEmail,
-    sendNotificationEmail,
-    buildEmailTemplate,
-    getEmailCredentials,
-    testEmailConnection,
-    isValidEmail
-};
+const sendEmailExport = sendEmail;
+sendEmailExport.sendEmail = sendEmail;
+sendEmailExport.sendNotificationEmail = sendNotificationEmail;
+sendEmailExport.buildEmailTemplate = buildEmailTemplate;
+sendEmailExport.getEmailCredentials = getEmailCredentials;
+sendEmailExport.testEmailConnection = testEmailConnection;
+sendEmailExport.isValidEmail = isValidEmail;
+sendEmailExport.normalizeEmail = normalizeEmail;
+
+module.exports = sendEmailExport;
+    
