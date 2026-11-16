@@ -1,5 +1,6 @@
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 
+const http = require('http')
 const path = require('path')
 const express = require('express')
 const cors = require('cors')
@@ -16,6 +17,9 @@ const checklists = require('./src/routes/checklistRoutes')
 const profileRoutes = require('./src/routes/profileRoutes')
 const { startTaskReminderCron } = require('./src/cronjob/taskReminder')
 const { startChecklistScheduler } = require('./src/cronjob/checklistScheduler')
+const chatRoutes = require('./src/routes/chatRoutes')
+const messageRoutes = require('./src/routes/MessageRoutes')
+const { initSocket } = require('./src/sockets/socket')
 
 const app = express()
 app.use(express.json())
@@ -36,10 +40,17 @@ app.use('/checklists', checklists)
 
 app.use("/access", accessRoutes);
 app.use("/profile", profileRoutes);
+app.use('/chat', chatRoutes);
+app.use('/messages', messageRoutes);
 
+const server = http.createServer(app)
+try {
+    initSocket(server)
+} catch (socketInitErr) {
+    console.error('Socket.io initialization warning:', socketInitErr.message)
+}
 
-
-app.listen(5000, '0.0.0.0', () => {
+server.listen(5000, '0.0.0.0', () => {
     console.log('server is running on port 5000')
     startTaskReminderCron()
     startChecklistScheduler()

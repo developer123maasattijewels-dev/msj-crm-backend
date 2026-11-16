@@ -13,7 +13,7 @@ const authenticateUser = async (req, res, next) => {
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const userId = decoded.id || decoded._id || decoded.userId;
-        const user = userId && await Users.findById(userId).select("_id role");
+        const user = userId && await Users.findById(userId).select("_id role name email designation department");
         if (!user) {
             return res.status(401).json({ success: false, message: "Invalid authentication token." });
         }

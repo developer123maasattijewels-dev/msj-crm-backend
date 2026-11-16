@@ -202,6 +202,17 @@ const sidebarModules = [
         description: "Stock demand slips, vendor tickets, support issues and purchase orders"
     },
 
+    // CHATS & MESSAGING
+    {
+        key: "chats",
+        name: "Chats & Messaging",
+        route: "/chats",
+        group: "Management",
+        showInSidebar: true,
+        actions: ["view", "create", "delete", "export"],
+        description: "Client conversations, team internal messaging, quotations and document sharing"
+    },
+
     // CATEGORIES
     {
         key: "categories",
