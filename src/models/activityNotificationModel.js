@@ -33,13 +33,14 @@ const activityNotificationSchema = new mongoose.Schema(
                 'task_completed',
                 'lead_assigned',
                 'interview_created',
-                'interview_updated'
+                'interview_updated',
+                'chat_message'
             ],
             required: true
         },
         entityType: {
             type: String,
-            enum: ['ticket', 'checklist', 'task', 'lead', 'interview', 'system'],
+            enum: ['ticket', 'checklist', 'task', 'lead', 'interview', 'system', 'conversation'],
             default: 'system'
         },
         entityId: {

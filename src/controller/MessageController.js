@@ -3,6 +3,7 @@ const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
 const jwt = require('jsonwebtoken');
 const Users = require('../models/usermodel');
+const { notifyChatMessage } = require('../comman/notificationService');
 
 // Helper to resolve authenticated user if token or headers are present
 const resolveAuthUser = async (req) => {
@@ -243,6 +244,29 @@ const sendMessage = async (req, res) => {
             }
         } catch (socketErr) {
             // Socket optional
+        }
+
+        // Send in-app + email notification to all conversation participants (except sender)
+        try {
+            // Reload conversation with populated participants for notification
+            const populatedConv = await Conversation.findById(conversationId)
+                .populate('assignedTo', '_id name email emailNotificationsEnabled')
+                .populate('createdBy', '_id name email emailNotificationsEnabled')
+                .populate('participants', '_id name email emailNotificationsEnabled')
+                .lean();
+
+            if (populatedConv) {
+                notifyChatMessage({
+                    conversation: populatedConv,
+                    senderName: finalSenderName,
+                    senderUserId: finalSenderId ? String(finalSenderId) : null,
+                    messagePreview: content.trim()
+                }).catch((err) =>
+                    console.error('[MessageController] Chat notification error:', err)
+                );
+            }
+        } catch (notifErr) {
+            console.error('[MessageController] Chat notification setup error:', notifErr);
         }
 
         return res.status(201).json({

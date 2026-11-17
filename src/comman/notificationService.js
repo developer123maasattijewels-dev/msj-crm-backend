@@ -627,6 +627,72 @@ const notifyLeadEvent = async ({ lead, senderUserId }) => {
     }
 };
 
+// ─── Chat Message Notification ───────────────────────────────────────────────
+
+const notifyChatMessage = async ({
+    conversation,
+    senderName = 'Team Member',
+    senderUserId,
+    messagePreview = ''
+}) => {
+    try {
+        if (!conversation) return null;
+
+        // Collect all recipient IDs: assignedTo, createdBy, participants
+        const recipientIds = [
+            conversation.assignedTo?._id || conversation.assignedTo,
+            conversation.createdBy?._id || conversation.createdBy,
+            ...(Array.isArray(conversation.participants)
+                ? conversation.participants.map((p) => p._id || p)
+                : [])
+        ]
+            .filter(Boolean)
+            .map(String)
+            // Remove the sender themselves so they don't get their own notification
+            .filter((id) => id !== String(senderUserId || ''));
+
+        if (!recipientIds.length) return null;
+
+        const recipients = await findUsersByIds([...new Set(recipientIds)]);
+        if (!recipients.length) return null;
+
+        const chatName = conversation.clientName || 'Chat';
+        const preview = messagePreview
+            ? messagePreview.length > 80
+                ? messagePreview.slice(0, 80) + '…'
+                : messagePreview
+            : 'New message received';
+
+        const title = `New Message from ${senderName}`;
+        const message = `${senderName} sent a message in "${chatName}":\n\n"${preview}"`;
+
+        return dispatchNotifications({
+            recipients,
+            title,
+            message,
+            type: 'chat_message',
+            entityType: 'conversation',
+            entityId: String(conversation._id || ''),
+            route: '/chats',
+            emailEyebrow: 'CHAT NOTIFICATION',
+            emailSubject: `[MSJ CRM] New message from ${senderName}`,
+            emailDetails: [
+                { label: 'Sender', value: senderName },
+                { label: 'Conversation', value: chatName },
+                { label: 'Message Preview', value: preview },
+                {
+                    label: 'Time',
+                    value: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
+                }
+            ],
+            senderUserId
+        });
+    } catch (error) {
+        console.error('[NotificationService] Chat message notification error:', error);
+        return null;
+    }
+};
+
 const notifyUserWelcome = async ({ user }) => {
     try {
         if (!user || !isValidEmail(user.email)) return null;
@@ -663,6 +729,7 @@ module.exports = {
     notifyTaskEvent,
     notifyInterviewEvent,
     notifyLeadEvent,
-    notifyUserWelcome
+    notifyUserWelcome,
+    notifyChatMessage
 };
 

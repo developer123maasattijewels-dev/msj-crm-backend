@@ -101,6 +101,6 @@ const leadSchema = new mongoose.Schema(
     }
 );
 
-const leadsmodel = mongoose.model('Leads', leadSchema);
+const leadsmodel = mongoose.model('Lead', leadSchema);
 
 module.exports = leadsmodel;
