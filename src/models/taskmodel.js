@@ -30,7 +30,7 @@ const taskSchema = new mongoose.Schema(
 
         relatedLead: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: 'Leads',
+            ref: 'Lead',
             default: null
         },
 
