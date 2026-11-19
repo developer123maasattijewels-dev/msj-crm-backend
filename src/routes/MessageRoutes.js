@@ -9,7 +9,10 @@ const {
     sendMessage,
     uploadAttachment,
     markMessagesAsRead,
-    clearConversationMessages
+    clearConversationMessages,
+    editMessage,
+    deleteMessage,
+    reactToMessage
 } = require('../controller/MessageController');
 
 // Multer Storage Configuration for Chat Uploads
@@ -42,6 +45,11 @@ router.post('/send', sendMessage);
 router.post('/upload', upload.single('file'), uploadAttachment);
 router.patch('/read/:conversationId', markMessagesAsRead);
 router.delete('/clear/:conversationId', clearConversationMessages);
+
+// WhatsApp style message actions
+router.patch('/edit/:messageId', editMessage);
+router.delete('/:messageId', deleteMessage);
+router.post('/react/:messageId', reactToMessage);
 
 module.exports = router;
 

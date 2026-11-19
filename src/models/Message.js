@@ -98,6 +98,21 @@ const messageSchema = new mongoose.Schema(
             default: null
         },
 
+        // Message reactions
+        reactions: [
+            {
+                emoji: { type: String, required: true },
+                userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+                userName: { type: String, default: '' }
+            }
+        ],
+
+        // Edited indicator
+        isEdited: {
+            type: Boolean,
+            default: false
+        },
+
         // Message deletion
         isDeleted: {
             type: Boolean,

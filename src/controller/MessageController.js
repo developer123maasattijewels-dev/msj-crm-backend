@@ -481,10 +481,147 @@ const clearConversationMessages = async (req, res) => {
     }
 };
 
+// EDIT MESSAGE
+const editMessage = async (req, res) => {
+    try {
+        const authUser = await resolveAuthUser(req);
+        const { messageId } = req.params;
+        const { content } = req.body;
+
+        if (!content || !content.trim()) {
+            return res.status(400).json({ success: false, message: 'Content cannot be empty' });
+        }
+
+        const msg = await Message.findById(messageId);
+        if (!msg) {
+            return res.status(404).json({ success: false, message: 'Message not found' });
+        }
+
+        const role = (authUser?.role || req.headers['x-user-role'] || '').toLowerCase();
+        const isAdmin = role === 'admin';
+        const userId = authUser?._id || req.headers['x-user-id'];
+
+        if (!isAdmin && userId && msg.senderId && msg.senderId.toString() !== userId.toString()) {
+            return res.status(403).json({ success: false, message: 'You can only edit your own messages' });
+        }
+
+        msg.content = content.trim();
+        msg.isEdited = true;
+        await msg.save();
+
+        try {
+            const { getIO } = require('../sockets/socket');
+            const io = getIO();
+            if (io) {
+                io.emit('chat:message_edited', { messageId, content: msg.content, conversationId: msg.conversation });
+            }
+        } catch (e) {}
+
+        return res.status(200).json({ success: true, message: 'Message edited successfully', data: msg });
+    } catch (err) {
+        console.error('Edit Message Error:', err);
+        return res.status(500).json({ success: false, message: 'Failed to edit message', error: err.message });
+    }
+};
+
+// DELETE INDIVIDUAL MESSAGE
+const deleteMessage = async (req, res) => {
+    try {
+        const authUser = await resolveAuthUser(req);
+        const { messageId } = req.params;
+
+        const msg = await Message.findById(messageId);
+        if (!msg) {
+            return res.status(404).json({ success: false, message: 'Message not found' });
+        }
+
+        const role = (authUser?.role || req.headers['x-user-role'] || '').toLowerCase();
+        const isAdmin = role === 'admin';
+        const userId = authUser?._id || req.headers['x-user-id'];
+
+        if (!isAdmin && userId && msg.senderId && msg.senderId.toString() !== userId.toString()) {
+            return res.status(403).json({ success: false, message: 'You can only delete your own messages' });
+        }
+
+        msg.isDeleted = true;
+        await msg.save();
+
+        try {
+            const { getIO } = require('../sockets/socket');
+            const io = getIO();
+            if (io) {
+                io.emit('chat:message_deleted', { messageId, conversationId: msg.conversation });
+            }
+        } catch (e) {}
+
+        return res.status(200).json({ success: true, message: 'Message deleted successfully', messageId });
+    } catch (err) {
+        console.error('Delete Message Error:', err);
+        return res.status(500).json({ success: false, message: 'Failed to delete message', error: err.message });
+    }
+};
+
+// REACT TO MESSAGE (EMOJI)
+const reactToMessage = async (req, res) => {
+    try {
+        const authUser = await resolveAuthUser(req);
+        const { messageId } = req.params;
+        const { emoji } = req.body;
+
+        if (!emoji) {
+            return res.status(400).json({ success: false, message: 'Emoji is required' });
+        }
+
+        const msg = await Message.findById(messageId);
+        if (!msg) {
+            return res.status(404).json({ success: false, message: 'Message not found' });
+        }
+
+        const userId = authUser?._id || req.headers['x-user-id'];
+        const userName = authUser?.name || 'User';
+
+        if (!Array.isArray(msg.reactions)) {
+            msg.reactions = [];
+        }
+
+        const existingIndex = msg.reactions.findIndex(
+            (r) => (r.userId && userId && r.userId.toString() === userId.toString()) || (r.userName === userName && r.emoji === emoji)
+        );
+
+        if (existingIndex > -1) {
+            if (msg.reactions[existingIndex].emoji === emoji) {
+                msg.reactions.splice(existingIndex, 1);
+            } else {
+                msg.reactions[existingIndex].emoji = emoji;
+            }
+        } else {
+            msg.reactions.push({ emoji, userId: userId || null, userName });
+        }
+
+        await msg.save();
+
+        try {
+            const { getIO } = require('../sockets/socket');
+            const io = getIO();
+            if (io) {
+                io.emit('chat:message_reacted', { messageId, reactions: msg.reactions, conversationId: msg.conversation });
+            }
+        } catch (e) {}
+
+        return res.status(200).json({ success: true, message: 'Reaction updated', data: msg });
+    } catch (err) {
+        console.error('React Message Error:', err);
+        return res.status(500).json({ success: false, message: 'Failed to react to message', error: err.message });
+    }
+};
+
 module.exports = {
     getMessages,
     sendMessage,
     uploadAttachment,
     markMessagesAsRead,
-    clearConversationMessages
+    clearConversationMessages,
+    editMessage,
+    deleteMessage,
+    reactToMessage
 };
