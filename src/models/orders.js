@@ -1,4 +1,3 @@
-
 const mongoose = require('mongoose');
 
 const customFieldDefinitionSchema = new mongoose.Schema(
@@ -39,6 +38,41 @@ const orderSchema = new mongoose.Schema(
             required: true
         },
 
+        formId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'OrderForm'
+        },
+
+        formType: {
+            type: String,
+            default: ''
+        },
+
+        customer: {
+            type: String,
+            default: ''
+        },
+
+        product: {
+            type: String,
+            default: ''
+        },
+
+        phone: {
+            type: String,
+            default: ''
+        },
+
+        amount: {
+            type: Number,
+            default: 0
+        },
+
+        date: {
+            type: String,
+            default: ''
+        },
+
         customFieldDefinitions: {
             type: [customFieldDefinitionSchema],
             default: []
@@ -59,6 +93,20 @@ const orderSchema = new mongoose.Schema(
             default: 'Pending'
         },
 
+        hasReceipt: {
+            type: Boolean,
+            default: false
+        },
+
+        receiptNo: {
+            type: String,
+            default: ''
+        },
+
+        receiptDate: {
+            type: Date
+        },
+
         createdBy: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User'
@@ -68,4 +116,4 @@ const orderSchema = new mongoose.Schema(
 );
 
 const Order = mongoose.model('Order', orderSchema);
-module.exports = Order
+module.exports = Order;
