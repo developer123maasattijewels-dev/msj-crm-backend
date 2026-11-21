@@ -83,6 +83,26 @@ const sidebarModules = [
         actions: ["view", "edit", "export"],
         description: "Detailed order specifications, gold weight, stone breakup and invoices"
     },
+    {
+        key: "receipts",
+        name: "Receipts & Job Slips",
+        route: "/orders",
+        parentKey: "orders",
+        group: "Sales & CRM",
+        showInSidebar: false,
+        actions: ["view", "create", "edit", "delete", "export"],
+        description: "Generate official receipts, CAD job slips, view receipt registry and print"
+    },
+    {
+        key: "order-forms",
+        name: "Order Form Templates",
+        route: "/orders",
+        parentKey: "orders",
+        group: "Sales & CRM",
+        showInSidebar: false,
+        actions: ["view", "create", "edit", "delete"],
+        description: "Create, customize, edit dynamic order forms and manage form fields"
+    },
 
     // PRODUCTS
     {
