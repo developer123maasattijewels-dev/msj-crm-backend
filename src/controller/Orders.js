@@ -45,65 +45,28 @@ const createOrderForm = async (req, res) => {
 };
 
 // GET ALL ORDER FORMS
+
+// GET ALL ORDER FORMS
 const getOrderForms = async (req, res) => {
     try {
-        let forms = await OrderForm.find().sort({ createdAt: -1 });
+        const forms = await OrderForm.find().sort({ createdAt: -1 });
 
-        // If no forms exist yet, seed standard default templates so admin has initial forms ready
-        if (forms.length === 0) {
-            const defaultForms = [
-                {
-                    name: 'Bespoke Jewellery Order',
-                    description: 'Custom jewellery manufacturing & design order form',
-                    fields: [
-                        { id: 'f_customer', label: 'Customer Name', type: 'text', placeholder: 'Enter customer name', required: true, options: [] },
-                        { id: 'f_phone', label: 'Phone Number', type: 'tel', placeholder: 'Enter phone number', required: true, options: [] },
-                        { id: 'f_email', label: 'Email Address', type: 'email', placeholder: 'Enter email address', required: false, options: [] },
-                        { id: 'f_product', label: 'Product Name', type: 'text', placeholder: 'e.g. Diamond Solitaire Ring', required: true, options: [] },
-                        { id: 'f_category', label: 'Category', type: 'select', placeholder: '', required: false, options: ['Rings', 'Necklaces', 'Bangles', 'Earrings', 'Pendants', 'Chains', 'Custom Bespoke'] },
-                        { id: 'f_purity', label: 'Metal & Purity', type: 'select', placeholder: '', required: false, options: ['22K Gold (916)', '18K Gold (750)', '14K Gold (585)', '925 Sterling Silver', 'Platinum 950'] },
-                        { id: 'f_weight', label: 'Gross Weight (g)', type: 'number', placeholder: 'e.g. 15.5', required: false, options: [] },
-                        { id: 'f_amount', label: 'Total Amount (₹)', type: 'number', placeholder: '₹ Enter total amount', required: true, options: [] },
-                        { id: 'f_advance', label: 'Advance Paid (₹)', type: 'number', placeholder: '₹ Enter advance paid', required: false, options: [] },
-                        { id: 'f_delivery_date', label: 'Delivery Date', type: 'date', placeholder: '', required: false, options: [] },
-                        { id: 'f_notes', label: 'Design Specifications / Notes', type: 'textarea', placeholder: 'Size, hallmark, stone specifications...', required: false, options: [] }
-                    ]
-                },
-                {
-                    name: 'Jewellery Repair & Polish',
-                    description: 'Repair, resizing, stone replacement or polish job card',
-                    fields: [
-                        { id: 'f_customer', label: 'Customer Name', type: 'text', placeholder: 'Customer full name', required: true, options: [] },
-                        { id: 'f_phone', label: 'Phone Number', type: 'tel', placeholder: 'Customer contact number', required: true, options: [] },
-                        { id: 'f_product', label: 'Item / Product', type: 'text', placeholder: 'e.g. Gold Kada, Diamond Earring', required: true, options: [] },
-                        { id: 'f_service_type', label: 'Service Type', type: 'select', placeholder: '', required: true, options: ['Polishing & Rhodium', 'Ring Resizing', 'Stone Replacement', 'Solder / Joint Fix', 'Laser Repair', 'Custom Modification'] },
-                        { id: 'f_amount', label: 'Estimated Service Cost (₹)', type: 'number', placeholder: '₹ Estimated charges', required: true, options: [] },
-                        { id: 'f_delivery_date', label: 'Due Date', type: 'date', placeholder: '', required: false, options: [] },
-                        { id: 'f_description', label: 'Work Description', type: 'textarea', placeholder: 'Condition of piece, customer request', required: false, options: [] }
-                    ]
-                }
-            ];
-
-            try {
-                forms = await OrderForm.insertMany(defaultForms);
-            } catch (seedErr) {
-                console.log('Seed form note:', seedErr.message);
-                forms = defaultForms;
-            }
-        }
-
-        res.status(200).json({
+        return res.status(200).json({
             success: true,
             data: forms
         });
+
     } catch (error) {
-        res.status(500).json({
+        console.error('Get Order Forms Error:', error);
+
+        return res.status(500).json({
             success: false,
             message: 'Failed to fetch order forms',
             error: error.message
         });
     }
 };
+
 
 // GET SINGLE ORDER FORM
 const getOrderFormById = async (req, res) => {
