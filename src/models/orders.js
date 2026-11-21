@@ -107,6 +107,11 @@ const orderSchema = new mongoose.Schema(
             type: Date
         },
 
+        images: {
+            type: [String],
+            default: []
+        },
+
         createdBy: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User'

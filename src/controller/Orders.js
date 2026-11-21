@@ -167,17 +167,32 @@ const createOrder = async (req, res) => {
             hasReceipt,
             generateReceipt,
             receiptNo,
+            images = [],
             createdBy
         } = req.body;
 
-        const isReceipt = Boolean(
+        let isReceipt = Boolean(
             hasReceipt === true ||
             hasReceipt === 'yes' ||
             generateReceipt === true ||
             generateReceipt === 'yes'
         );
-        const assignedReceiptNo = receiptNo || (isReceipt ? `RCP-${Date.now().toString().slice(-6)}` : '');
 
+        if (!isReceipt && customFields && typeof customFields === 'object') {
+            for (const [key, val] of Object.entries(customFields)) {
+                if (val === undefined || val === null || val === '') continue;
+                const kLower = key.toLowerCase();
+                if (kLower.includes('receipt') || kLower.includes('recipt')) {
+                    const vLower = String(val).trim().toLowerCase();
+                    if (vLower === 'yes' || vLower === 'true' || vLower === '1' || vLower === 'generate') {
+                        isReceipt = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        const assignedReceiptNo = receiptNo || (isReceipt ? `RCP-${Date.now().toString().slice(-6)}` : '');
         const orderId = `ORD-${Date.now()}`;
 
         // Ensure key values are extracted from customFields if not provided at root
@@ -205,6 +220,10 @@ const createOrder = async (req, res) => {
             }
         }
 
+        const orderImages = Array.isArray(images) && images.length > 0
+            ? images
+            : (Array.isArray(customFields?.images) ? customFields.images : []);
+
         const order = await Order.create({
             orderId,
             formId: formId || null,
@@ -216,6 +235,7 @@ const createOrder = async (req, res) => {
             date: date || new Date().toISOString().split('T')[0],
             customFieldDefinitions,
             customFields,
+            images: orderImages,
             status: status || 'Processing',
             payment: payment || 'Pending',
             hasReceipt: isReceipt,
@@ -288,9 +308,20 @@ const getOrderById = async (req, res) => {
 // UPDATE ORDER
 const updateOrder = async (req, res) => {
     try {
+        const updateData = { ...req.body };
+        if (updateData.hasReceipt === true || updateData.generateReceipt === true) {
+            updateData.hasReceipt = true;
+            if (!updateData.receiptNo) {
+                updateData.receiptNo = `RCP-${Date.now().toString().slice(-6)}`;
+            }
+            if (!updateData.receiptDate) {
+                updateData.receiptDate = new Date();
+            }
+        }
+
         const order = await Order.findByIdAndUpdate(
             req.params.id,
-            req.body,
+            updateData,
             {
                 new: true,
                 runValidators: true
