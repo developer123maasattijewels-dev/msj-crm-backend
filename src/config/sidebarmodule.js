@@ -70,7 +70,7 @@ const sidebarModules = [
         route: "/orders",
         group: "Sales & CRM",
         showInSidebar: true,
-        actions: ["view", "create", "edit", "delete", "export"],
+        actions: ["view", "create", "edit", "approve", "delete", "export"],
         description: "Jewellery orders, custom manufacturing jobs, dispatch and billing"
     },
     {
