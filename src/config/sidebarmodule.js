@@ -80,7 +80,7 @@ const sidebarModules = [
         parentKey: "orders",
         group: "Sales & CRM",
         showInSidebar: false,
-        actions: ["view", "edit", "export"],
+        actions: ["view", "edit", "delete", "export"],
         description: "Detailed order specifications, gold weight, stone breakup and invoices"
     },
     {
