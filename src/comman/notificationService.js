@@ -717,6 +717,95 @@ const notifyUserWelcome = async ({ user }) => {
     }
 };
 
+// ─── Order Notifications ───────────────────────────────────────────────────
+
+const notifyOrderCreated = async ({ order, senderUserId }) => {
+    try {
+        if (!order) return null;
+        const [inventoryUsers, adminUsers] = await Promise.all([
+            findUsersByDepartment("Inventory & Stores"),
+            findAdmins()
+        ]);
+        const recipients = deduplicateUsers([inventoryUsers, adminUsers]);
+        if (!recipients.length) return null;
+
+        const orderIdStr = order.orderId || order._id;
+        const clientName = order.customer || 'Customer';
+        const productName = order.product || 'Jewellery Item';
+        const title = `New Order Created: ${orderIdStr}`;
+        const message = `New jewellery order #${orderIdStr} for "${clientName}" (${productName}) requires inventory verification and stock check.`;
+
+        return dispatchNotifications({
+            recipients,
+            title,
+            message,
+            type: "order_created",
+            entityType: "order",
+            entityId: String(order._id || ""),
+            route: `/orders/view/${order._id}`,
+            emailEyebrow: "INVENTORY NOTIFICATION",
+            emailSubject: `[MSJ CRM] ${title}`,
+            emailDetails: [
+                { label: "Order ID", value: orderIdStr },
+                { label: "Client Name", value: clientName },
+                { label: "Product", value: productName },
+                { label: "Amount", value: `₹${(Number(order.amount) || 0).toLocaleString('en-IN')}` },
+                { label: "Status", value: order.status || 'Processing' },
+                { label: "Date", value: formatDateValue(order.createdAt || order.date) }
+            ],
+            senderUserId
+        });
+    } catch (error) {
+        console.error("[NotificationService] Order created notification error:", error);
+        return null;
+    }
+};
+
+const notifyInventoryVerified = async ({ order, inventoryDetails = {}, senderUserId, actorName = 'Inventory Team' }) => {
+    try {
+        if (!order) return null;
+        const [pcUsers, productionUsers, adminUsers] = await Promise.all([
+            findUsersByDepartment("PC"),
+            findUsersByDepartment("Production"),
+            findAdmins()
+        ]);
+        const recipients = deduplicateUsers([pcUsers, productionUsers, adminUsers]);
+        if (!recipients.length) return null;
+
+        const orderIdStr = order.orderId || order._id;
+        const clientName = order.customer || 'Customer';
+        const status = inventoryDetails.status || 'Verified';
+        const title = `Inventory Verified for Order: ${orderIdStr}`;
+        const message = `${actorName} completed inventory verification for Order #${orderIdStr} (${clientName}). Status: "${status}". Ready for Job Card creation.`;
+
+        return dispatchNotifications({
+            recipients,
+            title,
+            message,
+            type: "order_inventory_verified",
+            entityType: "order",
+            entityId: String(order._id || ""),
+            route: `/orders/view/${order._id}`,
+            emailEyebrow: "PC & JOB CARD NOTIFICATION",
+            emailSubject: `[MSJ CRM] ${title}`,
+            emailDetails: [
+                { label: "Order ID", value: orderIdStr },
+                { label: "Client Name", value: clientName },
+                { label: "Product", value: order.product || 'Jewellery' },
+                { label: "Inventory Status", value: status },
+                { label: "Available Qty", value: String(inventoryDetails.availableQuantity || '—') },
+                { label: "Shortage Qty", value: String(inventoryDetails.shortageQuantity || '0') },
+                { label: "Inventory Remarks", value: inventoryDetails.remarks || 'No remarks entered' },
+                { label: "Verified By", value: actorName }
+            ],
+            senderUserId
+        });
+    } catch (error) {
+        console.error("[NotificationService] Inventory verified notification error:", error);
+        return null;
+    }
+};
+
 module.exports = {
     findUsersByIdentifier,
     findUsersByIds,
@@ -730,6 +819,8 @@ module.exports = {
     notifyInterviewEvent,
     notifyLeadEvent,
     notifyUserWelcome,
-    notifyChatMessage
+    notifyChatMessage,
+    notifyOrderCreated,
+    notifyInventoryVerified
 };
 

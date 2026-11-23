@@ -88,6 +88,16 @@ const orderSchema = new mongoose.Schema(
             default: 'Processing'
         },
 
+        inventoryStatus: {
+            type: String,
+            default: 'Pending Verification'
+        },
+
+        inventoryDetails: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () => ({})
+        },
+
         payment: {
             type: String,
             default: 'Pending'

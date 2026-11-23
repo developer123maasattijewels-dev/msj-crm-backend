@@ -103,6 +103,26 @@ const sidebarModules = [
         actions: ["view", "create", "edit", "delete"],
         description: "Create, customize, edit dynamic order forms and manage form fields"
     },
+    {
+        key: "order-inventory",
+        name: "Inventory Verification",
+        route: "/orders",
+        parentKey: "orders",
+        group: "Sales & CRM",
+        showInSidebar: false,
+        actions: ["view", "edit", "approve"],
+        description: "Verify jewellery stock, gold/diamond availability, update shortage and notify PC Department"
+    },
+    {
+        key: "inventory",
+        name: "Order Inventory",
+        route: "/orders",
+        parentKey: "orders",
+        group: "Sales & CRM",
+        showInSidebar: false,
+        actions: ["view", "edit", "approve"],
+        description: "Order inventory check, verification and material allocation"
+    },
 
     // PRODUCTS
     {

@@ -11,7 +11,8 @@ const {
     getOrders,
     getOrderById,
     updateOrder,
-    deleteOrder
+    deleteOrder,
+    verifyInventory
 } = require('../controller/Orders');
 
 // Order Form Template Routes (must be declared before /:id)
@@ -26,6 +27,8 @@ router.post('/add', createOrder);
 router.get('/', getOrders);
 router.get('/:id', getOrderById);
 router.put('/:id', updateOrder);
+router.put('/:id/inventory', verifyInventory);
+router.post('/:id/inventory-verify', verifyInventory);
 router.delete('/:id', deleteOrder);
 
 module.exports = router;

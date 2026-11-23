@@ -1,5 +1,6 @@
 const Order = require('../models/orders');
 const OrderForm = require('../models/orderForm');
+const { notifyOrderCreated, notifyInventoryVerified } = require('../comman/notificationService');
 
 // ── ORDER FORM TEMPLATES CRUD ──────────────────────────────────────────────
 
@@ -220,9 +221,30 @@ const createOrder = async (req, res) => {
             }
         }
 
-        const orderImages = Array.isArray(images) && images.length > 0
-            ? images
-            : (Array.isArray(customFields?.images) ? customFields.images : []);
+        let orderImages = [];
+        if (Array.isArray(images) && images.length > 0) {
+            orderImages = images;
+        } else if (typeof images === 'string' && images.trim()) {
+            orderImages = [images.trim()];
+        } else if (Array.isArray(customFields?.images) && customFields.images.length > 0) {
+            orderImages = customFields.images;
+        } else if (typeof customFields?.image === 'string' && customFields.image.trim()) {
+            orderImages = [customFields.image.trim()];
+        }
+
+        if (orderImages.length === 0 && customFields && typeof customFields === 'object') {
+            for (const [k, v] of Object.entries(customFields)) {
+                if (!v) continue;
+                const kLower = k.toLowerCase();
+                if (kLower.includes('image') || kLower.includes('photo') || kLower.includes('design') || kLower.includes('pic') || kLower.includes('cad')) {
+                    if (Array.isArray(v)) {
+                        orderImages.push(...v.filter(Boolean));
+                    } else if (typeof v === 'string' && v.trim()) {
+                        orderImages.push(v.trim());
+                    }
+                }
+            }
+        }
 
         const order = await Order.create({
             orderId,
@@ -237,12 +259,32 @@ const createOrder = async (req, res) => {
             customFields,
             images: orderImages,
             status: status || 'Processing',
+            inventoryStatus: 'Pending Verification',
+            inventoryDetails: {
+                orderNumber: orderId,
+                clientName: custName,
+                clientCode: customFields?.['Client Code'] || customFields?.['client code'] || customFields?.clientCode || '',
+                skuCode: customFields?.['SKU Code'] || customFields?.['sku code'] || customFields?.sku || '',
+                productName: prodName,
+                requiredQuantity: customFields?.['Quantity'] || customFields?.['quantity'] || customFields?.qty || '1',
+                goldWeight: customFields?.['Gold Weight'] || customFields?.['gross weight'] || customFields?.weight || '',
+                diamondDetails: customFields?.['Diamond Details'] || customFields?.['diamond quality'] || '',
+                status: 'Pending Verification',
+                remarks: '',
+                submittedToPC: false
+            },
             payment: payment || 'Pending',
             hasReceipt: isReceipt,
             receiptNo: assignedReceiptNo,
             receiptDate: isReceipt ? new Date() : null,
             createdBy: createdBy || null
         });
+
+        // Trigger notification to Inventory Department
+        notifyOrderCreated({
+            order,
+            senderUserId: createdBy || req.headers['x-user-id'] || null
+        }).catch(err => console.error('[Orders] Error notifying inventory department:', err));
 
         res.status(201).json({
             success: true,
@@ -335,6 +377,21 @@ const updateOrder = async (req, res) => {
             });
         }
 
+        // If inventory was verified and submitToPC is set, notify PC
+        if (updateData.submitToPC && order) {
+            const actorName = req.headers['x-user-name']
+                ? decodeURIComponent(req.headers['x-user-name'])
+                : (order.inventoryDetails?.verifiedBy || 'Inventory Officer');
+            const actorUserId = req.headers['x-user-id'] || null;
+
+            notifyInventoryVerified({
+                order,
+                inventoryDetails: order.inventoryDetails || {},
+                senderUserId: actorUserId,
+                actorName
+            }).catch(err => console.error('[Orders] Error sending PC notification on update:', err));
+        }
+
         res.status(200).json({
             success: true,
             message: 'Order updated successfully',
@@ -376,6 +433,88 @@ const deleteOrder = async (req, res) => {
     }
 };
 
+// VERIFY INVENTORY & NOTIFY PC
+const verifyInventory = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const {
+            inventoryDetails = {},
+            inventoryStatus,
+            submitToPC = true
+        } = req.body;
+
+        const actorName = req.headers['x-user-name']
+            ? decodeURIComponent(req.headers['x-user-name'])
+            : (inventoryDetails?.verifiedBy || 'Inventory Officer');
+        const actorUserId = req.headers['x-user-id'] || null;
+
+        const existingOrder = await Order.findById(id);
+        if (!existingOrder) {
+            return res.status(404).json({
+                success: false,
+                message: 'Order not found'
+            });
+        }
+
+        const currentDetails = existingOrder.inventoryDetails || {};
+        const mergedDetails = {
+            ...currentDetails,
+            ...inventoryDetails,
+            verifiedBy: actorName,
+            verifiedAt: new Date(),
+            submittedToPC: Boolean(submitToPC)
+        };
+
+        const resolvedStatus = inventoryStatus || mergedDetails.status || (submitToPC ? 'Verified' : 'Draft');
+        mergedDetails.status = resolvedStatus;
+
+        const updatedCustomFields = {
+            ...(existingOrder.customFields || {}),
+            'Inventory Status': resolvedStatus,
+            'Inventory Remarks': mergedDetails.remarks || '',
+            'Inventory Available Qty': mergedDetails.availableQuantity || '',
+            'Inventory Shortage Qty': mergedDetails.shortageQuantity || '',
+            'Inventory Verified By': actorName,
+            'Inventory Verified Date': new Date().toISOString()
+        };
+
+        const updatedOrder = await Order.findByIdAndUpdate(
+            id,
+            {
+                inventoryStatus: resolvedStatus,
+                inventoryDetails: mergedDetails,
+                customFields: updatedCustomFields
+            },
+            { new: true, runValidators: true }
+        );
+
+        if (submitToPC) {
+            notifyInventoryVerified({
+                order: updatedOrder,
+                inventoryDetails: mergedDetails,
+                senderUserId: actorUserId,
+                actorName
+            }).catch(err => console.error('[Orders] Error sending PC notification:', err));
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: submitToPC
+                ? 'Inventory verification submitted and PC Department notified successfully!'
+                : 'Inventory draft saved successfully.',
+            data: updatedOrder
+        });
+
+    } catch (error) {
+        console.error('Verify Inventory Error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to update inventory verification',
+            error: error.message
+        });
+    }
+};
+
 module.exports = {
     createOrderForm,
     getOrderForms,
@@ -386,5 +525,6 @@ module.exports = {
     getOrders,
     getOrderById,
     updateOrder,
-    deleteOrder
+    deleteOrder,
+    verifyInventory
 };
