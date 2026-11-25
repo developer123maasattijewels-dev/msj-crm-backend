@@ -354,13 +354,6 @@ exports.deleteFollowUp = async (req, res) => {
 
     await FollowUp.findByIdAndDelete(id);
 
-    if (!canAccessDailyFollowUp(followUp, getActorContext(req))) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only admin or the creator can view this daily working record'
-      });
-    }
-
     res.status(200).json({
       success: true,
       message: 'Follow Up deleted successfully'

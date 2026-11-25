@@ -8,6 +8,7 @@ const {
   updateTicket,
   deleteTicket,
   createDemandTicket,
+  importTicketsFromExcel,
 } = require('../controller/Ticket');
 
 const router = express.Router();
@@ -15,6 +16,7 @@ const router = express.Router();
 // Create Ticket
 router.post('/create', createTicket);
 router.post('/add', createTicket);
+router.post('/import-excel', importTicketsFromExcel);
 
 // Get All Tickets (supports query parameters: search, status, priority, type, department, page, limit)
 router.get('/get', getAllTickets);

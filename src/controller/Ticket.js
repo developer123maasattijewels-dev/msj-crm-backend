@@ -620,6 +620,115 @@ const createDemandTicket = async (req, res) => {
     });
   }
 };
+const importTicketsFromExcel = async (req, res) => {
+  try {
+    const rawTickets = Array.isArray(req.body?.tickets) ? req.body.tickets : [];
+    if (!rawTickets.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'No ticket rows provided for import.',
+      });
+    }
+
+    const allowedTypes = [
+      'help',
+      'hiring',
+      'internalStoreIssue',
+      'maintenance',
+      'demand',
+      'po',
+    ];
+    const allowedPriorities = ['Low', 'Medium', 'High', 'Urgent'];
+    const allowedStatuses = ['Open', 'In Progress', 'Resolved', 'Closed', 'Approved'];
+
+    const normalizeEnum = (val, allowed, fallback) => {
+      const s = String(val || '').trim();
+      if (!s) return fallback;
+      const match = allowed.find((a) => a.toLowerCase() === s.toLowerCase());
+      return match || fallback;
+    };
+
+    const createdTickets = [];
+    const errors = [];
+
+    for (let idx = 0; idx < rawTickets.length; idx++) {
+      const row = rawTickets[idx] || {};
+      const requester = String(row.requester || '').trim();
+      const department = String(row.department || '').trim();
+
+      if (!requester || !department) {
+        errors.push(`Row ${idx + 1}: Requester and Department are required.`);
+        continue;
+      }
+
+      const safeType = normalizeEnum(row.type, allowedTypes, 'help');
+      const safePriority = normalizeEnum(row.priority, allowedPriorities, 'Medium');
+      const safeStatus = normalizeEnum(row.status, allowedStatuses, 'Open');
+
+      let finalTicketNumber = '';
+      if (row.ticketNumber && String(row.ticketNumber).trim()) {
+        const candidate = String(row.ticketNumber).trim();
+        const exists = await Tickets.findOne({ ticketNumber: candidate });
+        finalTicketNumber = exists ? await generateTicketNumber() : candidate;
+      } else {
+        finalTicketNumber = await generateTicketNumber();
+      }
+
+      let parsedDate = null;
+      if (row.requiredDate) {
+        const d = new Date(row.requiredDate);
+        if (!Number.isNaN(d.getTime())) parsedDate = d;
+      }
+
+      const description = String(row.description || '').trim();
+      const subject =
+        String(row.subject || '').trim() ||
+        (description ? description.slice(0, 80) : 'Support Request');
+
+      try {
+        const ticket = await Tickets.create({
+          ticketNumber: finalTicketNumber,
+          type: safeType,
+          subject,
+          requester,
+          requesterEmail: String(row.requesterEmail || '').trim().toLowerCase(),
+          department,
+          category: String(row.category || '').trim(),
+          priority: safePriority,
+          status: safeStatus,
+          requiredDate: parsedDate,
+          description,
+          details: row.details && typeof row.details === 'object' ? row.details : {},
+          quotations: [],
+          approvalBy: String(row.approvalBy || '').trim(),
+          assignee: String(row.assignee || '').trim() || 'Unassigned',
+          replies: [],
+        });
+
+        createdTickets.push(ticket);
+      } catch (rowErr) {
+        errors.push(`Row ${idx + 1}: ${rowErr.message}`);
+      }
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: `Imported ${createdTickets.length} ticket(s)${errors.length ? ` (${errors.length} skipped)` : ''}.`,
+      importedCount: createdTickets.length,
+      skippedCount: errors.length,
+      tickets: createdTickets,
+      errors,
+    });
+  } catch (error) {
+    console.error('Import Tickets Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to import tickets.',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   createTicket,
   getAllTickets,
@@ -629,4 +738,5 @@ module.exports = {
   updateTicket,
   deleteTicket,
   createDemandTicket,
+  importTicketsFromExcel,
 };
