@@ -202,6 +202,14 @@ const followUpSchema = new Schema(
       default: ''
     },
 
+    excelSheets: [
+      {
+        name: { type: String, default: 'Sheet1' },
+        headers: { type: [String], default: [] },
+        rows: { type: [mongoose.Schema.Types.Mixed], default: [] }
+      }
+    ],
+
     // Office Meeting Details
     meetingTitle: {
       type: String,
