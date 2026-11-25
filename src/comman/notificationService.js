@@ -189,6 +189,9 @@ const dispatchNotifications = async ({
         ])
     ];
 
+    const baseUrl = String(process.env.FRONTEND_URL || "").replace(/\/$/, "");
+    const actionUrl = baseUrl && route ? `${baseUrl}${route.startsWith("/") ? route : `/${route}`}` : "";
+
     const emailResult = await sendNotificationEmail({
         to: combinedEmails,
         subject: emailSubject || title,
@@ -197,6 +200,7 @@ const dispatchNotifications = async ({
         message,
         details: emailDetails,
         items: emailItems,
+        actionUrl,
         footerNote,
         senderUserId
     });
@@ -806,6 +810,74 @@ const notifyInventoryVerified = async ({ order, inventoryDetails = {}, senderUse
     }
 };
 
+const notifyFollowUpEvent = async ({ followUp, actorName = "", senderUserId }) => {
+    try {
+        if (!followUp) return null;
+
+        const targetIdentifiers = [
+            followUp.assignedTo,
+            followUp.salesPersonName,
+            followUp.organizer,
+            ...(Array.isArray(followUp.participants) ? followUp.participants : [])
+        ].filter(Boolean);
+
+        const resolvedUsers = await Promise.all(
+            targetIdentifiers.map((ident) => findUsersByIdentifier(ident))
+        );
+        const adminUsers = await findAdmins();
+        const recipients = filterOutActor(
+            deduplicateUsers([...resolvedUsers, adminUsers]),
+            actorName || followUp.employeeName
+        );
+        if (!recipients.length) return null;
+
+        const typeLabels = {
+            client: "Client Follow-up",
+            sales: "Sales Person Follow-up",
+            excel: "Excel Working",
+            meeting: "Office Meeting",
+            daily: "Daily Working Log"
+        };
+        const typeLabel = typeLabels[followUp.followUpType] || "Follow-up";
+        const subjectName =
+            followUp.clientName ||
+            followUp.salesPersonName ||
+            followUp.workName ||
+            followUp.meetingTitle ||
+            followUp.employeeName ||
+            "Activity";
+
+        const title = `${typeLabel}: ${subjectName}`;
+        const message = `${actorName || followUp.employeeName || "A team member"} logged a new ${typeLabel.toLowerCase()} in Maa Satti Jewels CRM.`;
+
+        return dispatchNotifications({
+            recipients,
+            title,
+            message,
+            type: "followup_created",
+            entityType: "followup",
+            entityId: String(followUp._id || ""),
+            route: "/crmsales",
+            emailEyebrow: "FOLLOW-UP NOTIFICATION",
+            emailSubject: `[MSJ CRM] ${title}`,
+            emailDetails: [
+                { label: "Follow-up Type", value: typeLabel },
+                { label: "Logged By", value: followUp.employeeName || actorName || "-" },
+                { label: "Department", value: followUp.department || "-" },
+                { label: "Client / Subject", value: subjectName },
+                { label: "Status", value: followUp.status || followUp.workStatus || followUp.performanceStatus || "Pending" },
+                { label: "Follow-up Date", value: formatDateValue(followUp.followUpDate || followUp.meetingDate || followUp.workDate) },
+                { label: "Next Follow-up", value: formatDateValue(followUp.nextFollowUpDate) },
+                { label: "Remarks", value: followUp.remarks || followUp.agenda || followUp.description }
+            ],
+            senderUserId
+        });
+    } catch (error) {
+        console.error("[NotificationService] Follow-up notification error:", error);
+        return null;
+    }
+};
+
 module.exports = {
     findUsersByIdentifier,
     findUsersByIds,
@@ -821,6 +893,7 @@ module.exports = {
     notifyUserWelcome,
     notifyChatMessage,
     notifyOrderCreated,
-    notifyInventoryVerified
+    notifyInventoryVerified,
+    notifyFollowUpEvent
 };
 

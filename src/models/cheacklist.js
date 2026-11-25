@@ -35,9 +35,12 @@ const checklistSchema = new mongoose.Schema({
     skipChecklistOnHolidays: { type: Boolean, default: false },
     isComplianceTask: { type: Boolean, default: false },
     selectNotifyDoerWhenTaskDone: { type: Boolean, default: false },
+    status: { type: String, default: "Pending", trim: true },
     responses: [{
         response: { type: String, required: true, trim: true },
         details: { type: String, trim: true, default: "" },
+        status: { type: String, trim: true, default: "" },
+        attachmentNote: { type: String, trim: true, default: "" },
         submittedBy: { type: String, trim: true, default: "" },
         sentTo: [{
             userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },

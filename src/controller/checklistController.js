@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Checklists = require("../models/cheacklist");
+const Tasks = require("../models/taskmodel");
 const Users = require("../models/usermodel");
 const ChecklistResponseNotification = require("../models/checklistResponseNotification");
 const { notifyChecklistEvent } = require("../comman/notificationService");
@@ -163,6 +164,10 @@ const submitChecklistResponse = async (req, res) => {
         }
         const response = typeof req.body.response === "string" ? req.body.response.trim() : "";
         const details = typeof req.body.details === "string" ? req.body.details.trim() : "";
+        const attachmentNote = typeof req.body.attachmentNote === "string" ? req.body.attachmentNote.trim() : "";
+        const rawStatus = typeof req.body.status === "string" ? req.body.status.trim() : "";
+        const allowedStatuses = ["Pending", "Not started", "In Progress", "Completed", "Overdue", "Cancelled"];
+        const normalizedStatus = rawStatus === "Not started" ? "Pending" : rawStatus;
         if (!response) {
             return res.status(400).json({ success: false, message: "Response cannot be empty." });
         }
@@ -172,22 +177,39 @@ const submitChecklistResponse = async (req, res) => {
         if (details.length > 4000) {
             return res.status(400).json({ success: false, message: "Response details cannot exceed 4,000 characters." });
         }
-        if (!Array.isArray(req.body.pcRecipients) ||
-            req.body.pcRecipients.some(id => !mongoose.isValidObjectId(id))) {
-            return res.status(400).json({ success: false, message: "PC recipients must be a list of valid team member IDs." });
+        if (rawStatus && !allowedStatuses.includes(rawStatus)) {
+            return res.status(400).json({ success: false, message: "Invalid checklist status." });
+        }
+        const pcRecipientsInput = Array.isArray(req.body.pcRecipients) ? req.body.pcRecipients : [];
+        const notifyRecipientsInput = Array.isArray(req.body.notifyRecipients) ? req.body.notifyRecipients : [];
+        if (pcRecipientsInput.some(id => !mongoose.isValidObjectId(id)) ||
+            notifyRecipientsInput.some(id => !mongoose.isValidObjectId(id))) {
+            return res.status(400).json({ success: false, message: "Recipients must be a list of valid team member IDs." });
         }
 
         const checklist = await Checklists.findById(req.params.id);
         if (!checklist) {
             return res.status(404).json({ success: false, message: "Checklist not found." });
         }
+        if (checklist.makeNoteMandatoryWhenWorkDone && !details) {
+            return res.status(400).json({ success: false, message: "Completion note / additional details is mandatory for this checklist." });
+        }
+        if (checklist.makeAttachmentMandatoryWhenWorkDone && !attachmentNote) {
+            return res.status(400).json({ success: false, message: "Attachment / proof reference is mandatory for this checklist." });
+        }
         const assignedByName = String(checklist.assignedBy || "").split("·")[0].trim();
         const assignedByPattern = assignedByName
             ? new RegExp(`^${assignedByName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i")
             : null;
-        const selectedPCIds = [...new Set(req.body.pcRecipients.map(String))];
-        const [selectedPCMembers, assignedPeople, assigningPeople] = await Promise.all([
-            Users.find({ _id: { $in: selectedPCIds }, department: /^pc$/i }).select("_id name email department emailNotificationsEnabled"),
+        const selectedPCIds = [...new Set(pcRecipientsInput.map(String))];
+        const selectedNotifyIds = [...new Set(notifyRecipientsInput.map(String))];
+        const [selectedPCMembers, selectedNotifyMembers, assignedPeople, assigningPeople] = await Promise.all([
+            selectedPCIds.length
+                ? Users.find({ _id: { $in: selectedPCIds }, department: /^pc$/i }).select("_id name email department emailNotificationsEnabled")
+                : Promise.resolve([]),
+            selectedNotifyIds.length
+                ? Users.find({ _id: { $in: selectedNotifyIds } }).select("_id name email department emailNotificationsEnabled")
+                : Promise.resolve([]),
             Users.find({
                 _id: { $in: [checklist.assignedTo, checklist.assignPC, checklist.auditor].filter(Boolean) }
             }).select("_id name email department emailNotificationsEnabled"),
@@ -199,13 +221,15 @@ const submitChecklistResponse = async (req, res) => {
             return res.status(400).json({ success: false, message: "One or more selected recipients are not PC team members." });
         }
         const recipientsById = new Map();
-        [...selectedPCMembers, ...assignedPeople, ...assigningPeople].forEach(user => {
+        [...selectedPCMembers, ...selectedNotifyMembers, ...assignedPeople, ...assigningPeople].forEach(user => {
             recipientsById.set(String(user._id), user);
         });
         const recipients = [...recipientsById.values()];
         const submittedResponse = {
             response,
             details,
+            status: normalizedStatus || checklist.status || "Pending",
+            attachmentNote,
             submittedBy: typeof req.body.submittedBy === "string" ? req.body.submittedBy.trim() : "",
             sentTo: recipients.map(user => ({
                 userId: user._id,
@@ -214,7 +238,26 @@ const submitChecklistResponse = async (req, res) => {
             }))
         };
         checklist.responses.push(submittedResponse);
+        if (normalizedStatus) {
+            checklist.status = normalizedStatus;
+        }
         await checklist.save();
+
+        if (normalizedStatus) {
+            const latestTask = await Tasks.findOne({ checklistId: checklist._id }).sort({ dueAt: -1, dueDate: -1, createdAt: -1 });
+            if (latestTask) {
+                latestTask.status = normalizedStatus;
+                if (normalizedStatus === "Completed") {
+                    latestTask.submittedAt = new Date();
+                    latestTask.submission = {
+                        summary: response,
+                        notes: details,
+                        evidenceUrl: attachmentNote
+                    };
+                }
+                await latestTask.save();
+            }
+        }
 
         const savedResponse = checklist.responses[checklist.responses.length - 1];
         const notificationResults = await Promise.allSettled(recipients.map(recipient =>

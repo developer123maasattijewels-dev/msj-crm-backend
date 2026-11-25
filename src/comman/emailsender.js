@@ -1,4 +1,5 @@
-require("dotenv").config();
+const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, "../../.env") });
 const nodemailer = require("nodemailer");
 const EmailProfile = require("../models/emailProfileModel");
 const Users = require("../models/usermodel");
@@ -109,31 +110,43 @@ const buildEmailTemplate = ({
     message = "",
     details = [],
     items = [],
-    footerNote = "Maa Satti Jewels CRM"
+    actionUrl = "",
+    actionLabel = "Open in Maa Satti Jewels CRM",
+    footerNote = "Maa Satti Jewels CRM · Automated Workspace Notification"
 }) => {
     const validDetails = (Array.isArray(details) ? details : []).filter(
         (d) => d && d.label && d.value !== undefined && d.value !== null && String(d.value).trim() !== ""
     );
 
+    const sentAt = new Date().toLocaleString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+        timeZone: "Asia/Kolkata"
+    });
+
     const detailsHtml = validDetails
         .map(
-            (d) => `
-            <tr>
-                <td style="padding:8px 12px;border-bottom:1px solid #ece7dc;color:#64748b;font-size:13px;font-weight:600;width:36%;">${escapeHtml(d.label)}</td>
-                <td style="padding:8px 12px;border-bottom:1px solid #ece7dc;color:#0f172a;font-size:13px;">${escapeHtml(d.value)}</td>
+            (d, idx) => `
+            <tr style="background:${idx % 2 === 0 ? "#fcfbf8" : "#ffffff"};">
+                <td style="padding:10px 14px;border-bottom:1px solid #ece7dc;color:#64748b;font-size:12.5px;font-weight:600;width:36%;vertical-align:top;">${escapeHtml(d.label)}</td>
+                <td style="padding:10px 14px;border-bottom:1px solid #ece7dc;color:#0f172a;font-size:13px;font-weight:500;vertical-align:top;">${escapeHtml(d.value)}</td>
             </tr>`
         )
         .join("");
 
     const validItems = Array.isArray(items) ? items.filter(Boolean) : [];
     const itemsHtml = validItems.length
-        ? `<table width="100%" cellspacing="0" cellpadding="0" style="margin-top:16px;border-collapse:collapse;border:1px solid #e6dfd1;">
+        ? `<table width="100%" cellspacing="0" cellpadding="0" style="margin-top:18px;border-collapse:collapse;border:1px solid #e6dfd1;border-radius:8px;overflow:hidden;">
             <thead>
-                <tr style="background:#f8f4eb;">
-                    <th align="left" style="padding:8px 10px;font-size:12px;color:#475569;border-bottom:1px solid #e6dfd1;">Item</th>
-                    <th align="left" style="padding:8px 10px;font-size:12px;color:#475569;border-bottom:1px solid #e6dfd1;">Category</th>
-                    <th align="left" style="padding:8px 10px;font-size:12px;color:#475569;border-bottom:1px solid #e6dfd1;">Qty</th>
-                    <th align="left" style="padding:8px 10px;font-size:12px;color:#475569;border-bottom:1px solid #e6dfd1;">Purpose</th>
+                <tr style="background:#f5efe3;">
+                    <th align="left" style="padding:9px 12px;font-size:11.5px;text-transform:uppercase;letter-spacing:0.4px;color:#6b4e1b;border-bottom:1px solid #e6dfd1;">Item</th>
+                    <th align="left" style="padding:9px 12px;font-size:11.5px;text-transform:uppercase;letter-spacing:0.4px;color:#6b4e1b;border-bottom:1px solid #e6dfd1;">Category</th>
+                    <th align="left" style="padding:9px 12px;font-size:11.5px;text-transform:uppercase;letter-spacing:0.4px;color:#6b4e1b;border-bottom:1px solid #e6dfd1;">Qty</th>
+                    <th align="left" style="padding:9px 12px;font-size:11.5px;text-transform:uppercase;letter-spacing:0.4px;color:#6b4e1b;border-bottom:1px solid #e6dfd1;">Purpose</th>
                 </tr>
             </thead>
             <tbody>
@@ -141,10 +154,10 @@ const buildEmailTemplate = ({
                     .map(
                         (item) => `
                         <tr>
-                            <td style="padding:8px 10px;font-size:13px;border-bottom:1px solid #f1ede4;">${escapeHtml(item.itemName || item.name || "-")}</td>
-                            <td style="padding:8px 10px;font-size:13px;border-bottom:1px solid #f1ede4;">${escapeHtml(item.category || "-")}</td>
-                            <td style="padding:8px 10px;font-size:13px;border-bottom:1px solid #f1ede4;">${escapeHtml(`${item.quantity ?? ""} ${item.unit || ""}`.trim() || "-")}</td>
-                            <td style="padding:8px 10px;font-size:13px;border-bottom:1px solid #f1ede4;">${escapeHtml(item.purpose || "-")}</td>
+                            <td style="padding:9px 12px;font-size:13px;color:#0f172a;border-bottom:1px solid #f1ede4;">${escapeHtml(item.itemName || item.name || "-")}</td>
+                            <td style="padding:9px 12px;font-size:13px;color:#475569;border-bottom:1px solid #f1ede4;">${escapeHtml(item.category || "-")}</td>
+                            <td style="padding:9px 12px;font-size:13px;color:#0f172a;border-bottom:1px solid #f1ede4;">${escapeHtml(`${item.quantity ?? ""} ${item.unit || ""}`.trim() || "-")}</td>
+                            <td style="padding:9px 12px;font-size:13px;color:#475569;border-bottom:1px solid #f1ede4;">${escapeHtml(item.purpose || "-")}</td>
                         </tr>`
                     )
                     .join("")}
@@ -152,31 +165,49 @@ const buildEmailTemplate = ({
            </table>`
         : "";
 
+    const ctaHtml = actionUrl
+        ? `<div style="margin-top:22px;">
+            <a href="${escapeHtml(actionUrl)}" style="display:inline-block;padding:11px 22px;background:#a77b35;color:#ffffff;text-decoration:none;font-size:13px;font-weight:700;border-radius:8px;letter-spacing:0.2px;">${escapeHtml(actionLabel)} &rarr;</a>
+           </div>`
+        : "";
+
     const html = `
-    <div style="font-family:Arial,sans-serif;background:#f6f4ee;padding:20px;color:#1e293b;">
-        <div style="max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e6dfd1;border-radius:12px;overflow:hidden;">
-            <div style="padding:18px 24px;background:#0f172a;border-bottom:3px solid #b8862d;">
-                <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:#e2bd70;">${escapeHtml(eyebrow)}</div>
-                <div style="font-size:18px;font-weight:700;color:#ffffff;margin-top:4px;">Maa Satti Jewels CRM</div>
+    <div style="font-family:'Segoe UI',Arial,sans-serif;background:#f4f1ea;padding:28px 16px;color:#1e293b;">
+        <div style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #e6dfd1;border-radius:14px;overflow:hidden;box-shadow:0 6px 24px rgba(15,23,42,0.06);">
+            <div style="padding:20px 26px;background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);border-bottom:3px solid #b8862d;">
+                <table width="100%" cellspacing="0" cellpadding="0">
+                    <tr>
+                        <td>
+                            <div style="display:inline-block;padding:3px 9px;border-radius:999px;background:rgba(184,134,45,0.18);border:1px solid rgba(226,189,112,0.4);font-size:10.5px;font-weight:700;letter-spacing:1px;color:#e8c77b;text-transform:uppercase;">${escapeHtml(eyebrow)}</div>
+                            <div style="font-size:19px;font-weight:700;color:#ffffff;margin-top:8px;letter-spacing:-0.2px;">Maa Satti Jewels CRM</div>
+                        </td>
+                        <td align="right" style="vertical-align:top;font-size:11.5px;color:#cbd5e1;white-space:nowrap;">
+                            ${escapeHtml(sentAt)} IST
+                        </td>
+                    </tr>
+                </table>
             </div>
-            <div style="padding:22px 24px;">
-                <h2 style="margin:0 0 10px;font-size:17px;color:#0f172a;">${escapeHtml(title)}</h2>
-                ${message ? `<p style="margin:0 0 16px;font-size:14px;line-height:1.5;color:#334155;">${escapeHtml(message).replace(/\n/g, "<br/>")}</p>` : ""}
-                ${detailsHtml ? `<table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#fcfbf8;border:1px solid #ece7dc;">${detailsHtml}</table>` : ""}
+            <div style="padding:26px;">
+                <h2 style="margin:0 0 12px;font-size:18px;font-weight:700;color:#0f172a;line-height:1.35;">${escapeHtml(title)}</h2>
+                ${message ? `<p style="margin:0 0 18px;font-size:14px;line-height:1.6;color:#334155;">${escapeHtml(message).replace(/\n/g, "<br/>")}</p>` : ""}
+                ${detailsHtml ? `<table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;border:1px solid #ece7dc;border-radius:8px;overflow:hidden;">${detailsHtml}</table>` : ""}
                 ${itemsHtml}
+                ${ctaHtml}
             </div>
-            <div style="padding:12px 24px;background:#faf8f3;border-top:1px solid #ece7dc;font-size:12px;color:#64748b;">
+            <div style="padding:14px 26px;background:#faf8f3;border-top:1px solid #ece7dc;font-size:12px;color:#64748b;line-height:1.5;">
                 ${escapeHtml(footerNote)}
             </div>
         </div>
     </div>`;
 
     const text = [
+        `[${eyebrow}] Maa Satti Jewels CRM`,
         title,
         "",
         message,
         "",
         ...validDetails.map((d) => `${d.label}: ${d.value}`),
+        ...(actionUrl ? ["", `${actionLabel}: ${actionUrl}`] : []),
         "",
         footerNote
     ].join("\n");
@@ -256,6 +287,8 @@ const sendNotificationEmail = async ({
     message,
     details = [],
     items = [],
+    actionUrl = "",
+    actionLabel,
     footerNote,
     senderUserId,
     auth
@@ -266,6 +299,8 @@ const sendNotificationEmail = async ({
         message,
         details,
         items,
+        actionUrl,
+        actionLabel,
         footerNote
     });
 

@@ -62,6 +62,56 @@ const sidebarModules = [
         actions: ["view", "create", "edit", "delete", "export"],
         description: "Client appointments, reminder schedules, calls and interaction logs"
     },
+    {
+        key: "followups-client",
+        name: "Client Follow-ups",
+        route: "/followups",
+        parentKey: "followups",
+        group: "Sales & CRM",
+        showInSidebar: false,
+        actions: ["view", "create", "edit", "delete"],
+        description: "Client calls, new order follow-ups, payment reminders and complaints"
+    },
+    {
+        key: "followups-sales",
+        name: "Sales Person Follow-ups",
+        route: "/followups",
+        parentKey: "followups",
+        group: "Sales & CRM",
+        showInSidebar: false,
+        actions: ["view", "create", "edit", "delete"],
+        description: "Sales team activity tracking, targets and performance status"
+    },
+    {
+        key: "followups-excel",
+        name: "Excel Based Working",
+        route: "/followups",
+        parentKey: "followups",
+        group: "Sales & CRM",
+        showInSidebar: false,
+        actions: ["view", "create", "edit", "delete"],
+        description: "Excel data entry, cleaning, import/export and report preparation tasks"
+    },
+    {
+        key: "followups-meeting",
+        name: "Office Meetings",
+        route: "/followups",
+        parentKey: "followups",
+        group: "Sales & CRM",
+        showInSidebar: false,
+        actions: ["view", "create", "edit", "delete"],
+        description: "Daily, weekly and management meetings, agendas and action points"
+    },
+    {
+        key: "followups-daily",
+        name: "Daily Working Logs",
+        route: "/followups",
+        parentKey: "followups",
+        group: "Sales & CRM",
+        showInSidebar: false,
+        actions: ["view", "create", "edit", "delete"],
+        description: "Private daily work logs (visible only to Admin and the creator)"
+    },
 
     // ORDERS
     {
