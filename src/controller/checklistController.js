@@ -301,6 +301,206 @@ const submitChecklistResponse = async (req, res) => {
 };
 
 
+const cleanWhitespace = value =>
+    String(value ?? "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
+
+const normalizeHeader = value =>
+    cleanWhitespace(value).toLowerCase().replace(/[^a-z0-9]/g, "");
+
+const extractEmail = value => {
+    const match = String(value || "").match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+    return match ? match[0].toLowerCase() : "";
+};
+
+const stripPersonSuffix = value =>
+    cleanWhitespace(value)
+        .replace(/Â·/g, "·")
+        .split(/[·•|—–]/)[0]
+        .replace(/\([^)]*\)/g, "")
+        .replace(/<[^>]*>/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+const resolveUserFromList = (rawValue, users, { preferDepartment = null } = {}) => {
+    const cleaned = cleanWhitespace(rawValue);
+    if (!cleaned || /^(unassigned|none|na|n\/a|-)$/i.test(cleaned)) {
+        return { empty: true, user: null };
+    }
+
+    const pickBest = matches => {
+        if (!matches.length) return null;
+        if (preferDepartment && matches.length > 1) {
+            const preferred = matches.find(u => preferDepartment.test(String(u.department || "").trim()));
+            if (preferred) return preferred;
+        }
+        return matches[0];
+    };
+
+    if (mongoose.isValidObjectId(cleaned)) {
+        const byId = users.find(u => String(u._id) === cleaned);
+        if (byId) return { empty: false, user: byId };
+    }
+
+    const email = extractEmail(cleaned);
+    if (email) {
+        const byEmail = users.filter(u => String(u.email || "").trim().toLowerCase() === email);
+        if (byEmail.length) return { empty: false, user: pickBest(byEmail) };
+    }
+
+    const lowerCleaned = cleaned.toLowerCase();
+    const exactNameMatches = users.filter(u => cleanWhitespace(u.name).toLowerCase() === lowerCleaned);
+    if (exactNameMatches.length) return { empty: false, user: pickBest(exactNameMatches) };
+
+    const stripped = stripPersonSuffix(cleaned).toLowerCase();
+    if (stripped) {
+        const strippedMatches = users.filter(u => stripPersonSuffix(u.name).toLowerCase() === stripped);
+        if (strippedMatches.length) return { empty: false, user: pickBest(strippedMatches) };
+    }
+
+    return { empty: false, user: null };
+};
+
+const resolveUserListFromCell = (rawValue, users, options = {}) => {
+    const cleaned = cleanWhitespace(rawValue);
+    if (!cleaned) return { ids: [], invalid: [] };
+    const tokens = String(rawValue)
+        .split(/[\r\n,;|]+/)
+        .map(cleanWhitespace)
+        .filter(Boolean);
+    const ids = [];
+    const seen = new Set();
+    const invalid = [];
+
+    for (const token of tokens) {
+        const result = resolveUserFromList(token, users, options);
+        if (result.empty) continue;
+        if (!result.user) {
+            invalid.push(token);
+            continue;
+        }
+        const idStr = String(result.user._id);
+        if (!seen.has(idStr)) {
+            seen.add(idStr);
+            ids.push(result.user._id);
+        }
+    }
+    return { ids, invalid };
+};
+
+const parseBooleanCell = (value, defaultValue = false) => {
+    if (typeof value === "boolean") return { valid: true, value, provided: true };
+    if (typeof value === "number") return { valid: true, value: value !== 0, provided: true };
+    const cleaned = cleanWhitespace(value).toLowerCase();
+    if (!cleaned) return { valid: true, value: defaultValue, provided: false };
+    if (["yes", "y", "true", "1", "on", "enabled", "active"].includes(cleaned)) {
+        return { valid: true, value: true, provided: true };
+    }
+    if (["no", "n", "false", "0", "off", "disabled", "inactive"].includes(cleaned)) {
+        return { valid: true, value: false, provided: true };
+    }
+    return { valid: false, value: defaultValue, provided: true };
+};
+
+const makeValidUtcDate = (year, month, day) => {
+    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+    if (year < 1900 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+        return null;
+    }
+    return date;
+};
+
+const parsePlannedDateCell = rawDate => {
+    if (rawDate === "" || rawDate === null || rawDate === undefined) {
+        return { valid: true, value: null };
+    }
+    if (rawDate instanceof Date) {
+        if (Number.isNaN(rawDate.getTime())) return { valid: false, value: null };
+        return {
+            valid: true,
+            value: makeValidUtcDate(rawDate.getFullYear(), rawDate.getMonth() + 1, rawDate.getDate())
+        };
+    }
+    if (typeof rawDate === "number" && Number.isFinite(rawDate)) {
+        const parsed = XLSX.SSF.parse_date_code(rawDate);
+        const date = parsed ? makeValidUtcDate(parsed.y, parsed.m, parsed.d) : null;
+        return date ? { valid: true, value: date } : { valid: false, value: null };
+    }
+
+    const str = cleanWhitespace(rawDate);
+    if (!str) return { valid: true, value: null };
+
+    const isoMatch = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T\s].*)?$/);
+    if (isoMatch) {
+        const date = makeValidUtcDate(Number(isoMatch[1]), Number(isoMatch[2]), Number(isoMatch[3]));
+        return date ? { valid: true, value: date } : { valid: false, value: null };
+    }
+
+    const dmyMatch = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+    if (dmyMatch) {
+        const first = Number(dmyMatch[1]);
+        const second = Number(dmyMatch[2]);
+        const year = Number(dmyMatch[3]);
+        const date = second > 12 && first <= 12
+            ? makeValidUtcDate(year, first, second)
+            : makeValidUtcDate(year, second, first);
+        return date ? { valid: true, value: date } : { valid: false, value: null };
+    }
+
+    const fallback = new Date(str);
+    if (!Number.isNaN(fallback.getTime())) {
+        const date = makeValidUtcDate(fallback.getFullYear(), fallback.getMonth() + 1, fallback.getDate());
+        if (date) return { valid: true, value: date };
+    }
+    return { valid: false, value: null };
+};
+
+const parseTimeCell = (rawTime, defaultTime = "09:00") => {
+    if (rawTime === "" || rawTime === null || rawTime === undefined) {
+        return { valid: true, value: defaultTime, provided: false };
+    }
+    if (typeof rawTime === "number" && Number.isFinite(rawTime)) {
+        const frac = ((rawTime % 1) + 1) % 1;
+        let totalMinutes = Math.round(frac * 24 * 60);
+        if (totalMinutes >= 24 * 60) totalMinutes = 0;
+        const hh = String(Math.floor(totalMinutes / 60)).padStart(2, "0");
+        const mm = String(totalMinutes % 60).padStart(2, "0");
+        return { valid: true, value: `${hh}:${mm}`, provided: true };
+    }
+    if (rawTime instanceof Date && !Number.isNaN(rawTime.getTime())) {
+        const hh = String(rawTime.getHours()).padStart(2, "0");
+        const mm = String(rawTime.getMinutes()).padStart(2, "0");
+        return { valid: true, value: `${hh}:${mm}`, provided: true };
+    }
+
+    const str = cleanWhitespace(rawTime);
+    if (!str) return { valid: true, value: defaultTime, provided: false };
+
+    const match = str.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(am|pm)?$/i);
+    if (!match) return { valid: false, value: "", provided: true };
+
+    let hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    const ampm = match[3] ? match[3].toLowerCase() : "";
+
+    if (ampm) {
+        if (hours < 1 || hours > 12 || minutes < 0 || minutes > 59) {
+            return { valid: false, value: "", provided: true };
+        }
+        if (ampm === "pm" && hours < 12) hours += 12;
+        if (ampm === "am" && hours === 12) hours = 0;
+    } else if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+        return { valid: false, value: "", provided: true };
+    }
+
+    return {
+        valid: true,
+        value: `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`,
+        provided: true
+    };
+};
+
 const importChecklistsExcel = async (req, res) => {
     try {
         if (!req.file) {
@@ -310,187 +510,403 @@ const importChecklistsExcel = async (req, res) => {
             });
         }
 
-        const workbook = XLSX.read(req.file.buffer, {
-            type: "buffer",
-            cellDates: true
-        });
+        const isCsv = /\.csv$/i.test(req.file.originalname || "") || req.file.mimetype === "text/csv";
+        const workbook = isCsv
+            ? XLSX.read(req.file.buffer.toString("utf8").replace(/^\uFEFF/, ""), {
+                type: "string",
+                cellDates: false,
+                raw: true
+            })
+            : XLSX.read(req.file.buffer, {
+                type: "buffer",
+                cellDates: false,
+                raw: false
+            });
 
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = sheet
-            ? XLSX.utils.sheet_to_json(sheet, { defval: "" })
-            : [];
+        const taskHeaderAliases = ["taskname", "taskchecklistname", "checklistname", "name", "title", "task"];
+        const companionAliases = ["assignedto", "assignedtoemailorname", "assignee", "frequency", "priority", "planneddate", "status"];
 
-        if (!rows.length) {
+        const findHeaderRowIndex = grid => {
+            const limit = Math.min(grid.length, 15);
+            for (let i = 0; i < limit; i++) {
+                const normalizedCells = (grid[i] || []).map(normalizeHeader).filter(Boolean);
+                const hasTaskHeader = normalizedCells.some(cell => taskHeaderAliases.includes(cell));
+                const hasCompanion = normalizedCells.some(cell => companionAliases.includes(cell));
+                if (hasTaskHeader && hasCompanion) return i;
+            }
+            for (let i = 0; i < limit; i++) {
+                const normalizedCells = (grid[i] || []).map(normalizeHeader).filter(Boolean);
+                if (normalizedCells.some(cell => taskHeaderAliases.includes(cell))) return i;
+            }
+            return -1;
+        };
+
+        let targetGrid = [];
+        let headerIndex = -1;
+        const preferredSheets = workbook.SheetNames.filter(
+            name => !/^(instructions?|guide|team\s*members?|users|responses?\s*log)$/i.test(String(name).trim())
+        );
+        const orderedSheetNames = [
+            ...preferredSheets,
+            ...workbook.SheetNames.filter(name => !preferredSheets.includes(name))
+        ];
+
+        for (const sheetName of orderedSheetNames) {
+            const sheet = workbook.Sheets[sheetName];
+            if (!sheet) continue;
+            const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+            const foundIdx = findHeaderRowIndex(grid);
+            if (foundIdx !== -1) {
+                targetGrid = grid;
+                headerIndex = foundIdx;
+                break;
+            }
+            if (!targetGrid.length && grid.length) {
+                targetGrid = grid;
+                headerIndex = 0;
+            }
+        }
+
+        if (!targetGrid.length || headerIndex === -1 || headerIndex >= targetGrid.length - 1) {
             return res.status(400).json({
                 success: false,
-                message: "Excel file is empty."
+                message: "Excel file is empty or missing checklist columns (Task Name, Assigned To)."
             });
         }
 
-        if (rows.length > 1000) {
+        const headers = (targetGrid[headerIndex] || []).map(h => cleanWhitespace(h));
+        const rawRows = [];
+        for (let r = headerIndex + 1; r < targetGrid.length; r++) {
+            const cells = targetGrid[r] || [];
+            if (cells.every(cell => !cleanWhitespace(cell))) continue;
+
+            const rowObj = {};
+            headers.forEach((header, colIdx) => {
+                if (header) {
+                    rowObj[header] = cells[colIdx] !== undefined ? cells[colIdx] : "";
+                }
+            });
+            rawRows.push({ rowNumber: r + 1, row: rowObj });
+        }
+
+        if (!rawRows.length) {
+            return res.status(400).json({
+                success: false,
+                message: "No checklist rows found in the uploaded file."
+            });
+        }
+
+        if (rawRows.length > 1000) {
             return res.status(400).json({
                 success: false,
                 message: "Maximum 1000 rows allowed."
             });
         }
 
-        // Excel column matching
-        const normalize = value =>
-            String(value).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-
         const getValue = (row, aliases) => {
-            const key = Object.keys(row).find(key =>
-                aliases.includes(normalize(key))
-            );
+            const key = Object.keys(row).find(col => aliases.includes(normalizeHeader(col)));
             return key !== undefined ? row[key] : "";
         };
 
-        // Fetch all users including MongoDB ID
-        const users = await Users.find({}).select("_id name email");
+        const frequencyMap = {
+            onetime: "One Time",
+            once: "One Time",
+            daily: "Daily",
+            weekly: "Weekly",
+            monthly: "Monthly",
+            quarterly: "Quarterly",
+            yearly: "Yearly",
+            annual: "Yearly",
+            annually: "Yearly",
+            custom: "Custom"
+        };
+
+        const priorityMap = {
+            low: "Low",
+            medium: "Medium",
+            med: "Medium",
+            normal: "Medium",
+            high: "High",
+            urgent: "Urgent",
+            critical: "Urgent"
+        };
+
+        const statusMap = {
+            pending: "Pending",
+            notstarted: "Pending",
+            open: "Pending",
+            inprogress: "In Progress",
+            progress: "In Progress",
+            working: "In Progress",
+            completed: "Completed",
+            complete: "Completed",
+            done: "Completed",
+            overdue: "Overdue",
+            late: "Overdue",
+            cancelled: "Cancelled",
+            canceled: "Cancelled"
+        };
+
+        const reminderModeMap = {
+            beforeduedate: "Before due date",
+            before: "Before due date",
+            onduedate: "On due date",
+            ondue: "On due date",
+            afterduedate: "After due date",
+            after: "After due date"
+        };
+
+        const reminderFrequencyMap = {
+            once: "Once",
+            onetime: "Once",
+            daily: "Daily",
+            weekly: "Weekly"
+        };
+
+        const dayMap = {
+            "0": 0, sun: 0, sunday: 0,
+            "1": 1, mon: 1, monday: 1,
+            "2": 2, tue: 2, tues: 2, tuesday: 2,
+            "3": 3, wed: 3, wednesday: 3,
+            "4": 4, thu: 4, thur: 4, thurs: 4, thursday: 4,
+            "5": 5, fri: 5, friday: 5,
+            "6": 6, sat: 6, saturday: 6
+        };
+
+        const users = await Users.find({}).select("_id name email department designation role");
+        const fallbackAssignedBy = cleanWhitespace(req.body?.assignedBy || "");
 
         const imported = [];
         const invalidRows = [];
+        let processedCount = 0;
 
-        const frequencies = [
-            "One Time", "Daily", "Weekly", "Monthly",
-            "Quarterly", "Yearly", "Custom"
-        ];
+        for (const { rowNumber, row } of rawRows) {
+            const taskName = cleanWhitespace(
+                getValue(row, ["taskname", "taskchecklistname", "checklistname", "name", "title", "task"])
+            );
+            const rawAssignee = getValue(row, [
+                "assignedto",
+                "assignedtoemailorname",
+                "assignee",
+                "assignedemail",
+                "assigneeemail",
+                "doer"
+            ]);
+            const assigneeClean = cleanWhitespace(rawAssignee);
 
-        const priorities = ["Low", "Medium", "High", "Urgent"];
-        const dayNames = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+            // Stop cleanly if an exported CSV contains the trailing "Responses Log" header section
+            if (taskName.toLowerCase() === "checklist task" && assigneeClean.toLowerCase() === "submitted by") {
+                break;
+            }
 
-        for (const [index, row] of rows.entries()) {
+            processedCount += 1;
 
-            const rowNumber = index + 2;
+            const rawFrequency = cleanWhitespace(getValue(row, ["frequency", "repeat"]));
+            const frequencyKey = normalizeHeader(rawFrequency);
+            const frequency = !rawFrequency ? "One Time" : (frequencyMap[frequencyKey] || "");
 
-            const taskName = String(
-                getValue(row, ["taskname", "name", "title"]) || ""
-            ).trim();
+            const rawPriority = cleanWhitespace(getValue(row, ["priority"]));
+            const priorityKey = normalizeHeader(rawPriority);
+            const priority = !rawPriority ? "Medium" : (priorityMap[priorityKey] || "");
 
-            const assignee = String(
-                getValue(row, [
-                    "assignedto",
-                    "assignedtoemailorname",
-                    "assignee",
-                    "assignedemail",
-                    "assigneeemail"
-                ]) || ""
-            ).trim();
-
-            const frequency = String(
-                getValue(row, ["frequency", "repeat"]) || "One Time"
-            ).trim();
-
-            const priority = String(
-                getValue(row, ["priority"]) || "Medium"
-            ).trim();
+            const rawStatus = cleanWhitespace(getValue(row, ["status", "taskstatus"]));
+            const statusKey = normalizeHeader(rawStatus);
+            const status = !rawStatus ? "Pending" : (statusMap[statusKey] || "");
 
             const message = String(
-                getValue(row, ["message", "instructions", "description"]) || ""
+                getValue(row, ["message", "messageinstructions", "instructions", "description", "notes"]) ?? ""
             ).trim();
+            const groupName = cleanWhitespace(getValue(row, ["groupname", "group", "category"]));
+            const assignedBy = cleanWhitespace(getValue(row, ["assignedby", "createdby"])) || fallbackAssignedBy;
+            const mode = cleanWhitespace(getValue(row, ["mode"])) || "Manual";
 
-            // Match MongoDB ID, Name or Email
-            const assigneeUser = users.find(user =>
-                String(user._id) === assignee ||
-                user.email?.toLowerCase() === assignee.toLowerCase() ||
-                user.name?.toLowerCase() === assignee.toLowerCase()
+            // Resolve people
+            const assigneeMatch = resolveUserFromList(rawAssignee, users);
+            const assignPCMatch = resolveUserFromList(
+                getValue(row, ["assignpc", "assignpcincharge", "pc", "pcname", "pcincharge"]),
+                users,
+                { preferDepartment: /^pc$/i }
+            );
+            const auditorMatch = resolveUserFromList(
+                getValue(row, ["auditor", "reviewer"]),
+                users
             );
 
-            // Weekly days
-            const weeklyDaysValue = String(
-                getValue(row, ["weeklydays", "repeaton"]) || ""
-            ).trim();
-
-            const weeklyDays = weeklyDaysValue
-                ? weeklyDaysValue.split(/[;,|]/).map(value => {
-                    const day = value.trim().toLowerCase().slice(0, 3);
-                    return /^\d$/.test(day)
-                        ? Number(day)
-                        : dayNames.indexOf(day);
-                })
-                : [];
-
-            // Monthly and custom values
-            const monthlyDay = Number(
-                getValue(row, ["monthlyday", "dayofmonth"])
-            ) || 0;
-
-            const customIntervalDays = Number(
-                getValue(row, ["customintervaldays", "repeateverydays"])
-            ) || 0;
-
             // Planned date
-            const rawDate = getValue(row, [
+            const rawDateValue = getValue(row, [
                 "planneddate",
                 "planneddateyyyymmdd",
                 "startdate",
-                "duedate"
+                "duedate",
+                "date"
             ]);
+            const parsedDate = parsePlannedDateCell(rawDateValue);
+            const plannedDate = parsedDate.value;
 
-            let plannedDate = null;
-
-            if (rawDate instanceof Date && !isNaN(rawDate.getTime())) {
-                plannedDate = rawDate;
-
-            } else if (typeof rawDate === "number") {
-                const parsed = XLSX.SSF.parse_date_code(rawDate);
-
-                if (parsed) {
-                    plannedDate = new Date(
-                        Date.UTC(parsed.y, parsed.m - 1, parsed.d)
-                    );
+            // Weekly days
+            const rawWeeklyDays = cleanWhitespace(getValue(row, ["weeklydays", "repeaton", "weekdays"]));
+            let weeklyDays = [];
+            let invalidWeeklyToken = "";
+            if (rawWeeklyDays) {
+                const seenDays = new Set();
+                for (const token of rawWeeklyDays.split(/[\s,;|/]+/).filter(Boolean)) {
+                    const mappedDay = dayMap[token.toLowerCase()];
+                    if (mappedDay === undefined) {
+                        invalidWeeklyToken = token;
+                        break;
+                    }
+                    if (!seenDays.has(mappedDay)) {
+                        seenDays.add(mappedDay);
+                        weeklyDays.push(mappedDay);
+                    }
                 }
-
-            } else if (rawDate) {
-                const parsed = new Date(String(rawDate).trim());
-
-                if (!isNaN(parsed.getTime())) {
-                    plannedDate = parsed;
-                }
+            } else if (frequency === "Weekly" && parsedDate.valid && plannedDate) {
+                // Fall back to the Planned Date's weekday when Weekly Days is omitted
+                weeklyDays = [plannedDate.getUTCDay()];
             }
+
+            // Monthly and custom values
+            const rawMonthlyDay = cleanWhitespace(getValue(row, ["monthlyday", "dayofmonth"]));
+            const parsedMonthlyDay = rawMonthlyDay
+                ? Number.parseInt(rawMonthlyDay, 10)
+                : (frequency === "Monthly" && parsedDate.valid && plannedDate ? plannedDate.getUTCDate() : 0);
+
+            const rawCustomInterval = cleanWhitespace(getValue(row, ["customintervaldays", "repeateverydays", "intervaldays"]));
+            const customIntervalDays = rawCustomInterval ? Number.parseInt(rawCustomInterval, 10) : 0;
+
+            // Reminder & notification settings
+            const rawReminderDays = cleanWhitespace(
+                getValue(row, ["reminderdaysbefore", "setreminderbeforedays", "remindbeforedays", "reminderdays"])
+            );
+            const reminderDaysParsed = rawReminderDays ? Number.parseInt(rawReminderDays, 10) : 0;
+            const reminderTimeParsed = parseTimeCell(
+                getValue(row, ["remindertime", "reminderstartingtime", "tasktime", "time", "duetime"]),
+                "09:00"
+            );
+
+            const setReminderBool = parseBooleanCell(
+                getValue(row, ["setreminder", "reminder", "reminderenabled"]),
+                Boolean(reminderDaysParsed > 0 || reminderTimeParsed.provided)
+            );
+            const notifyMeBool = parseBooleanCell(
+                getValue(row, ["notifyme", "notifications"]),
+                false
+            );
+            const isComplianceBool = parseBooleanCell(
+                getValue(row, ["compliancetask", "iscompliancetask", "compliance"]),
+                false
+            );
+            const skipHolidaysBool = parseBooleanCell(
+                getValue(row, ["skiponholidays", "skipchecklistonholidays", "skipholidays"]),
+                false
+            );
+            const mandatoryAttachmentBool = parseBooleanCell(
+                getValue(row, ["mandatoryattachment", "mandatoryattachmentwhendone", "makeattachmentmandatorywhendone", "attachmentmandatory"]),
+                false
+            );
+            const mandatoryNoteBool = parseBooleanCell(
+                getValue(row, ["mandatorynote", "mandatorynotewhendone", "makenotemandatorywhendone", "notemandatory"]),
+                false
+            );
+            const autoCloseBool = parseBooleanCell(
+                getValue(row, ["autoclose", "autocloseenabled", "checklistautoclose"]),
+                false
+            );
+            const rawAutoCloseDays = cleanWhitespace(getValue(row, ["autoclosedays", "checklistautoclosedays"]));
+            const autoCloseDays = rawAutoCloseDays ? Number.parseInt(rawAutoCloseDays, 10) : 0;
+            const notifyDoerBool = parseBooleanCell(
+                getValue(row, ["notifydoerwhendone", "selectnotifydoerwhentaskdone"]),
+                false
+            );
+
+            const rawReminderMode = cleanWhitespace(getValue(row, ["remindermode"]));
+            const reminderMode = !rawReminderMode
+                ? "Before due date"
+                : (reminderModeMap[normalizeHeader(rawReminderMode)] || "");
+
+            const rawReminderFrequency = cleanWhitespace(getValue(row, ["reminderfrequency"]));
+            const reminderFrequency = !rawReminderFrequency
+                ? "Once"
+                : (reminderFrequencyMap[normalizeHeader(rawReminderFrequency)] || "");
+
+            const notifyCompletionUsers = resolveUserListFromCell(
+                getValue(row, ["notifyoncompletion", "notifyoncompletionusers", "notifyusers"]),
+                users
+            );
+
+            const rawNotifyPC = getValue(row, [
+                "notifypcteamuserswhendue",
+                "notifypcteamwhendue",
+                "notifypconoverdue",
+                "notifypcusers"
+            ]);
+            const notifyPCBoolCheck = parseBooleanCell(rawNotifyPC, false);
+            const notifyPCTeamWhenDue = notifyPCBoolCheck.provided && notifyPCBoolCheck.valid
+                ? notifyPCBoolCheck.value
+                : false;
+            const notifyPCUsers = notifyPCBoolCheck.provided && notifyPCBoolCheck.valid
+                ? { ids: [], invalid: [] }
+                : resolveUserListFromCell(rawNotifyPC, users, { preferDepartment: /^pc$/i });
 
             // Validation
             let error = "";
 
             if (!taskName) {
                 error = "Task Name is required.";
-
-            } else if (!assigneeUser) {
-                error = `Assigned To "${assignee || "(blank)"}" did not match user ID, name or email.`;
-
-            } else if (!frequencies.includes(frequency)) {
-                error = `Invalid frequency "${frequency}".`;
-
-            } else if (!priorities.includes(priority)) {
-                error = `Invalid priority "${priority}".`;
-
-            } else if (
-                frequency !== "One Time" &&
-                (!plannedDate || isNaN(plannedDate.getTime()))
-            ) {
-                error = "Valid Planned Date is required.";
-
-            } else if (
-                frequency === "Weekly" &&
-                (!weeklyDays.length ||
-                    weeklyDays.some(day =>
-                        !Number.isInteger(day) || day < 0 || day > 6
-                    ) ||
-                    new Set(weeklyDays).size !== weeklyDays.length)
-            ) {
+            } else if (!assigneeMatch.user) {
+                error = `Assigned To "${assigneeClean || "(blank)"}" did not match user ID, name or email.`;
+            } else if (!assignPCMatch.empty && !assignPCMatch.user) {
+                error = `Assign PC "${cleanWhitespace(getValue(row, ["assignpc", "assignpcincharge", "pc", "pcname", "pcincharge"]))}" did not match any user.`;
+            } else if (!auditorMatch.empty && !auditorMatch.user) {
+                error = `Auditor "${cleanWhitespace(getValue(row, ["auditor", "reviewer"]))}" did not match any user.`;
+            } else if (!frequency) {
+                error = `Invalid frequency "${rawFrequency}". Use One Time, Daily, Weekly, Monthly, Quarterly, Yearly, or Custom.`;
+            } else if (!priority) {
+                error = `Invalid priority "${rawPriority}". Use Low, Medium, High, or Urgent.`;
+            } else if (!status) {
+                error = `Invalid status "${rawStatus}". Use Pending, Not started, In Progress, Completed, Overdue, or Cancelled.`;
+            } else if (!parsedDate.valid) {
+                error = `Invalid Planned Date "${cleanWhitespace(rawDateValue)}". Use YYYY-MM-DD (e.g. 2026-11-30).`;
+            } else if (frequency !== "One Time" && (!plannedDate || Number.isNaN(plannedDate.getTime()))) {
+                error = "Valid Planned Date is required for recurring checklists.";
+            } else if (invalidWeeklyToken) {
+                error = `Invalid Weekly Day "${invalidWeeklyToken}". Use Sun, Mon, Tue, Wed, Thu, Fri, Sat.`;
+            } else if (frequency === "Weekly" && (!weeklyDays.length || weeklyDays.some(d => !Number.isInteger(d) || d < 0 || d > 6))) {
                 error = "Invalid Weekly Days. Use Mon,Wed,Fri.";
-
-            } else if (
-                frequency === "Monthly" &&
-                (monthlyDay < 1 || monthlyDay > 31)
-            ) {
+            } else if (frequency === "Monthly" && (!Number.isInteger(parsedMonthlyDay) || parsedMonthlyDay < 1 || parsedMonthlyDay > 31)) {
                 error = "Monthly Day must be between 1 and 31.";
-
-            } else if (
-                frequency === "Custom" &&
-                (customIntervalDays < 1 || customIntervalDays > 365)
-            ) {
+            } else if (frequency === "Custom" && (!Number.isInteger(customIntervalDays) || customIntervalDays < 1 || customIntervalDays > 365)) {
                 error = "Custom Interval must be between 1 and 365 days.";
+            } else if (!setReminderBool.valid) {
+                error = "Invalid Set Reminder value. Use Yes or No.";
+            } else if (!notifyMeBool.valid) {
+                error = "Invalid Notify Me value. Use Yes or No.";
+            } else if (!isComplianceBool.valid) {
+                error = "Invalid Compliance Task value. Use Yes or No.";
+            } else if (!skipHolidaysBool.valid) {
+                error = "Invalid Skip On Holidays value. Use Yes or No.";
+            } else if (!mandatoryAttachmentBool.valid) {
+                error = "Invalid Mandatory Attachment value. Use Yes or No.";
+            } else if (!mandatoryNoteBool.valid) {
+                error = "Invalid Mandatory Note value. Use Yes or No.";
+            } else if (!autoCloseBool.valid) {
+                error = "Invalid Auto Close value. Use Yes or No.";
+            } else if (!notifyDoerBool.valid) {
+                error = "Invalid Notify Doer When Done value. Use Yes or No.";
+            } else if (!reminderTimeParsed.valid) {
+                error = `Invalid Reminder Time "${cleanWhitespace(getValue(row, ["remindertime", "reminderstartingtime", "tasktime", "time", "duetime"]))}". Use HH:MM (e.g. 10:00).`;
+            } else if (rawReminderDays && (!Number.isInteger(reminderDaysParsed) || reminderDaysParsed < 0 || reminderDaysParsed > 365)) {
+                error = "Reminder Days Before must be between 0 and 365.";
+            } else if (!reminderMode) {
+                error = `Invalid Reminder Mode "${rawReminderMode}".`;
+            } else if (!reminderFrequency) {
+                error = `Invalid Reminder Frequency "${rawReminderFrequency}".`;
+            } else if (rawAutoCloseDays && (!Number.isInteger(autoCloseDays) || autoCloseDays < 0 || autoCloseDays > 3650)) {
+                error = "Auto Close Days must be 0 or greater.";
+            } else if (notifyCompletionUsers.invalid.length) {
+                error = `Notify On Completion user(s) not found: ${notifyCompletionUsers.invalid.join(", ")}.`;
+            } else if (notifyPCUsers.invalid.length) {
+                error = `Notify PC Team user(s) not found: ${notifyPCUsers.invalid.join(", ")}.`;
             }
 
             if (error) {
@@ -502,19 +918,43 @@ const importChecklistsExcel = async (req, res) => {
                 continue;
             }
 
-            // Prepare checklist data
+            const hasExplicitNotifyUsers = notifyCompletionUsers.ids.length > 0 || notifyPCUsers.ids.length > 0;
+            const effectiveNotifyMe = notifyMeBool.provided ? notifyMeBool.value : hasExplicitNotifyUsers;
+            const effectiveReminderDays = Number.isInteger(reminderDaysParsed) && reminderDaysParsed >= 0 ? reminderDaysParsed : 0;
+
             imported.push({
                 taskName,
                 message,
-                assignedTo: assigneeUser._id,
+                assignedTo: assigneeMatch.user._id,
                 frequency,
                 plannedDate,
                 priority,
+                status,
+                mode,
+                groupName,
+                assignedBy,
+                assignPC: assignPCMatch.user ? assignPCMatch.user._id : null,
+                auditor: auditorMatch.user ? auditorMatch.user._id : null,
                 weeklyDays: frequency === "Weekly" ? weeklyDays : [],
-                monthlyDay: frequency === "Monthly" ? monthlyDay : 1,
-                customIntervalDays: frequency === "Custom"
-                    ? customIntervalDays
-                    : 1
+                monthlyDay: frequency === "Monthly" ? parsedMonthlyDay : 1,
+                customIntervalDays: frequency === "Custom" ? customIntervalDays : 1,
+                setReminder: setReminderBool.value,
+                setReminderBeforeDays: effectiveReminderDays,
+                remindBeforeDays: effectiveReminderDays,
+                reminderStartingTime: reminderTimeParsed.value,
+                reminderMode,
+                reminderFrequency,
+                notifyMe: effectiveNotifyMe,
+                notifyOnCompletionUsers: effectiveNotifyMe ? notifyCompletionUsers.ids : [],
+                notifyPCTeamUsersWhenDue: effectiveNotifyMe ? notifyPCUsers.ids : [],
+                notifyPCTeamWhenDue: Boolean(effectiveNotifyMe && (notifyPCTeamWhenDue || notifyPCUsers.ids.length > 0)),
+                isComplianceTask: isComplianceBool.value,
+                skipChecklistOnHolidays: skipHolidaysBool.value,
+                makeAttachmentMandatoryWhenWorkDone: mandatoryAttachmentBool.value,
+                makeNoteMandatoryWhenWorkDone: mandatoryNoteBool.value,
+                checklistAutoClose: autoCloseBool.value,
+                checklistAutoCloseDays: autoCloseBool.value && Number.isInteger(autoCloseDays) ? autoCloseDays : 0,
+                selectNotifyDoerWhenTaskDone: notifyDoerBool.value
             });
         }
 
@@ -535,6 +975,7 @@ const importChecklistsExcel = async (req, res) => {
         return res.status(200).json({
             success: true,
             message: `${imported.length} checklist(s) imported successfully.`,
+            totalRows: processedCount,
             imported: imported.length,
             failed: invalidRows.length,
             invalidRows

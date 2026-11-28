@@ -22,8 +22,20 @@ const upload = multer({
     }
 });
 
+const handleExcelUpload = (req, res, next) => {
+    upload.single("file")(req, res, err => {
+        if (err) {
+            return res.status(400).json({
+                success: false,
+                message: err.message || "Invalid Excel or CSV upload."
+            });
+        }
+        next();
+    });
+};
+
 router.post("/", addChecklist);
-router.post("/import-excel", upload.single("file"), importChecklistsExcel);
+router.post("/import-excel", handleExcelUpload, importChecklistsExcel);
 router.post("/:id/responses", submitChecklistResponse);
 router.get("/", getChecklists);
 router.get("/:id", getChecklistById);
