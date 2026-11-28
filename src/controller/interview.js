@@ -7,6 +7,39 @@ const path = require("path");
 const Interview = require("../models/interviewformmodel");
 const { notifyInterviewEvent } = require("../comman/notificationService");
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const escapeRegex = (value) =>
+    String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const resolveUserId = (req) => {
+    const candidateId = req.authUser?._id || req.user?._id || req.headers["x-user-id"];
+    return candidateId && mongoose.isValidObjectId(candidateId) ? candidateId : null;
+};
+
+const buildResumeObject = (req) => {
+    if (!req.file) return undefined;
+    return {
+        originalName: req.file.originalname,
+        url: `${req.protocol}://${req.get("host")}/uploads/${encodeURIComponent(req.file.filename)}`,
+        mimeType: req.file.mimetype,
+        size: req.file.size,
+    };
+};
+
+const parseOptionalSalary = (value) => {
+    if (value === undefined || value === null || String(value).trim() === "") {
+        return null;
+    }
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+        const error = new Error("Expected salary must be a non-negative number.");
+        error.statusCode = 400;
+        throw error;
+    }
+    return parsed;
+};
+
 const removeUploadedResume = async (file) => {
     if (!file) return;
     try {
@@ -18,25 +51,39 @@ const removeUploadedResume = async (file) => {
     }
 };
 
+const removeResumeByUrl = async (resumeUrl) => {
+    if (!resumeUrl) return;
+    try {
+        const filename = decodeURIComponent(new URL(resumeUrl).pathname.split("/").pop());
+        if (filename && path.basename(filename) === filename) {
+            await fs.promises.unlink(path.resolve(__dirname, "../../public/Uploads", filename));
+        }
+    } catch (error) {
+        if (error.code !== "ENOENT") {
+            console.error("Unable to remove stored candidate resume:", error);
+        }
+    }
+};
+
 exports.createInterview = async (req, res) => {
     try {
-        const {
-            candidateName,
-            candidateEmail,
-            candidatePhone,
-            department,
-            candidatePosition,
-            source,
-            referredBy,
-        } = req.body;
+        const body = req.body || {};
+        const candidateName = String(body.candidateName ?? body.name ?? "").trim();
+        const candidateEmail = String(body.candidateEmail ?? body.email ?? "").trim().toLowerCase();
+        const candidatePhone = String(body.candidatePhone ?? body.phone ?? "").trim();
+        const department = String(body.department ?? "").trim();
+        const candidatePosition = String(body.candidatePosition ?? body.position ?? "").trim();
+        const source = String(body.source ?? body.platform ?? "").trim();
+        const referredBy = String(body.referredBy ?? "").trim();
+        const hiringStatus = String(body.hiringStatus ?? body.selectionStatus ?? "").trim() || "New";
+        const trainingStatus = String(body.trainingStatus ?? "").trim() || "Not Started";
 
         if (
-            !candidateName?.trim() ||
-            !candidateEmail?.trim() ||
-            !candidatePhone?.trim() ||
-            !department?.trim() ||
-            !candidatePosition?.trim() ||
-            !source?.trim()
+            !candidateName ||
+            !candidatePhone ||
+            !department ||
+            !candidatePosition ||
+            !source
         ) {
             await removeUploadedResume(req.file);
             return res.status(400).json({
@@ -45,30 +92,39 @@ exports.createInterview = async (req, res) => {
             });
         }
 
-      
+        if (candidateEmail && !EMAIL_REGEX.test(candidateEmail)) {
+            await removeUploadedResume(req.file);
+            return res.status(400).json({
+                success: false,
+                message: "Enter a valid candidate email address.",
+            });
+        }
+
+        const expectedSalary = parseOptionalSalary(body.expectedSalary ?? body.proposedSalary);
+        const actorUserId = resolveUserId(req);
+
         const candidate = await Interview.create({
-            candidateName: candidateName.trim(),
-            candidateEmail: candidateEmail.trim().toLowerCase(),
-            candidatePhone: candidatePhone.trim(),
-            department: department.trim(),
-            candidatePosition: candidatePosition.trim(),
-            source: source.trim(),
-            referredBy: referredBy?.trim() || "",
-            resume: req.file
-                ? {
-                    originalName: req.file.originalname,
-                    url: `${req.protocol}://${req.get("host")}/uploads/${encodeURIComponent(req.file.filename)}`,
-                    mimeType: req.file.mimetype,
-                    size: req.file.size,
-                }
-                : undefined,
-            createdBy: req.user?._id || null,
+            candidateName,
+            candidateEmail,
+            candidatePhone,
+            department,
+            candidatePosition,
+            source,
+            referredBy,
+            expectedSalary,
+            hiringStatus,
+            training: {
+                status: trainingStatus,
+            },
+            ...(expectedSalary !== null ? { interview: { proposedSalary: expectedSalary } } : {}),
+            resume: buildResumeObject(req),
+            createdBy: actorUserId,
         });
 
         await notifyInterviewEvent({
             candidate,
             eventType: "created",
-            senderUserId: req.user?._id
+            senderUserId: actorUserId,
         });
 
         res.status(201).json({
@@ -78,7 +134,8 @@ exports.createInterview = async (req, res) => {
         });
     } catch (error) {
         await removeUploadedResume(req.file);
-        res.status(500).json({
+        const statusCode = error.statusCode || (error.name === "ValidationError" || error.name === "CastError" ? 400 : 500);
+        res.status(statusCode).json({
             success: false,
             message: error.message,
         });
@@ -92,47 +149,70 @@ exports.getAllInterviews = async (req, res) => {
             department,
             candidatePosition,
             source,
+            hiringStatus,
+            fromDate,
+            toDate,
             page = 1,
             limit = 10,
         } = req.query;
 
         // Pagination
-        const pageNumber = Math.max(1, parseInt(page) || 1);
+        const pageNumber = Math.max(1, parseInt(page, 10) || 1);
         const pageSize = Math.min(
             100,
-            Math.max(1, parseInt(limit) || 10)
+            Math.max(1, parseInt(limit, 10) || 10)
         );
         const skip = (pageNumber - 1) * pageSize;
 
         // Filter
         const filter = {};
 
-        if (department) {
+        if (department && !["All", "All Departments"].includes(department)) {
             filter.department = department;
         }
 
-        if (candidatePosition) {
-            filter.candidatePosition = candidatePosition;
+        if (candidatePosition && candidatePosition.trim()) {
+            filter.candidatePosition = new RegExp(escapeRegex(candidatePosition.trim()), "i");
         }
 
-        if (source) {
-            filter.source = source;
+        if (source && source.trim()) {
+            filter.source = new RegExp(escapeRegex(source.trim()), "i");
         }
 
-        // Search by name, email, phone or position
+        if (hiringStatus && !["All", "All Statuses"].includes(hiringStatus)) {
+            filter.hiringStatus = hiringStatus;
+        }
+
+        if (fromDate || toDate) {
+            const createdAtFilter = {};
+            if (fromDate) {
+                const start = new Date(`${fromDate}T00:00:00.000Z`);
+                if (!Number.isNaN(start.getTime())) {
+                    createdAtFilter.$gte = start;
+                }
+            }
+            if (toDate) {
+                const end = new Date(`${toDate}T23:59:59.999Z`);
+                if (!Number.isNaN(end.getTime())) {
+                    createdAtFilter.$lte = end;
+                }
+            }
+            if (Object.keys(createdAtFilter).length > 0) {
+                filter.createdAt = createdAtFilter;
+            }
+        }
+
+        // Search by name, email, phone, position, department or referrer
         if (search.trim()) {
-            const escapedSearch = search.trim().replace(
-                /[.*+?^${}()|[\]\\]/g,
-                "\\$&"
-            );
-
-            const regex = new RegExp(escapedSearch, "i");
+            const regex = new RegExp(escapeRegex(search.trim()), "i");
 
             filter.$or = [
                 { candidateName: regex },
                 { candidateEmail: regex },
                 { candidatePhone: regex },
                 { candidatePosition: regex },
+                { department: regex },
+                { referredBy: regex },
             ];
         }
 
@@ -247,6 +327,7 @@ exports.updateInterview = async (req, res) => {
             "candidatePosition",
             "source",
             "referredBy",
+            "expectedSalary",
             "hiringStatus",
         ];
         const nestedFields = {
@@ -323,7 +404,7 @@ exports.updateInterview = async (req, res) => {
             });
         }
 
-        for (const field of ["candidateName", "candidateEmail", "candidatePhone", "department", "candidatePosition", "source"]) {
+        for (const field of ["candidateName", "candidatePhone", "department", "candidatePosition", "source"]) {
             if (Object.prototype.hasOwnProperty.call(updates, field)) {
                 if (typeof updates[field] !== "string" || !updates[field].trim()) {
                     await removeUploadedResume(req.file);
@@ -336,9 +417,11 @@ exports.updateInterview = async (req, res) => {
             }
         }
 
-        if (updates.candidateEmail) {
-            updates.candidateEmail = updates.candidateEmail.toLowerCase();
-            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(updates.candidateEmail)) {
+        if (Object.prototype.hasOwnProperty.call(updates, "candidateEmail")) {
+            updates.candidateEmail = typeof updates.candidateEmail === "string"
+                ? updates.candidateEmail.trim().toLowerCase()
+                : "";
+            if (updates.candidateEmail && !EMAIL_REGEX.test(updates.candidateEmail)) {
                 await removeUploadedResume(req.file);
                 return res.status(400).json({
                     success: false,
@@ -349,18 +432,18 @@ exports.updateInterview = async (req, res) => {
         if (Object.prototype.hasOwnProperty.call(updates, "referredBy")) {
             updates.referredBy = typeof updates.referredBy === "string" ? updates.referredBy.trim() : "";
         }
+        if (Object.prototype.hasOwnProperty.call(updates, "expectedSalary")) {
+            updates.expectedSalary = parseOptionalSalary(updates.expectedSalary);
+        }
 
         const previousResumeUrl = candidate.resume?.url;
-        if (req.file) {
-            updates.resume = {
-                originalName: req.file.originalname,
-                url: `${req.protocol}://${req.get("host")}/uploads/${encodeURIComponent(req.file.filename)}`,
-                mimeType: req.file.mimetype,
-                size: req.file.size,
-            };
+        const nextResume = buildResumeObject(req);
+        if (nextResume) {
+            updates.resume = nextResume;
         }
-        if (req.user?._id) {
-            updates.lastUpdatedBy = req.user._id;
+        const actorUserId = resolveUserId(req);
+        if (actorUserId) {
+            updates.lastUpdatedBy = actorUserId;
         }
 
         const updatedCandidate = await Interview.findByIdAndUpdate(
@@ -379,21 +462,12 @@ exports.updateInterview = async (req, res) => {
             await notifyInterviewEvent({
                 candidate: updatedCandidate,
                 eventType: "updated",
-                senderUserId: req.user?._id
+                senderUserId: actorUserId,
             });
         }
 
         if (req.file && previousResumeUrl) {
-            try {
-                const previousFilename = decodeURIComponent(new URL(previousResumeUrl).pathname.split("/").pop());
-                if (path.basename(previousFilename) === previousFilename) {
-                    await fs.promises.unlink(path.resolve(__dirname, "../../public/Uploads", previousFilename));
-                }
-            } catch (error) {
-                if (error.code !== "ENOENT") {
-                    console.error("Unable to remove replaced candidate resume:", error);
-                }
-            }
+            await removeResumeByUrl(previousResumeUrl);
         }
 
         return res.status(200).json({
@@ -403,8 +477,44 @@ exports.updateInterview = async (req, res) => {
         });
     } catch (error) {
         await removeUploadedResume(req.file);
-        const statusCode = error.name === "ValidationError" || error.name === "CastError" ? 400 : 500;
+        const statusCode = error.statusCode || (error.name === "ValidationError" || error.name === "CastError" ? 400 : 500);
         return res.status(statusCode).json({
+            success: false,
+            message: error.message,
+        });
+    }
+};
+
+exports.deleteInterview = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid candidate ID.",
+            });
+        }
+
+        const deletedCandidate = await Interview.findByIdAndDelete(id);
+        if (!deletedCandidate) {
+            return res.status(404).json({
+                success: false,
+                message: "Candidate not found.",
+            });
+        }
+
+        if (deletedCandidate.resume?.url) {
+            await removeResumeByUrl(deletedCandidate.resume.url);
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Candidate deleted successfully.",
+            data: { _id: deletedCandidate._id },
+        });
+    } catch (error) {
+        return res.status(500).json({
             success: false,
             message: error.message,
         });

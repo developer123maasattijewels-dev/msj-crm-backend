@@ -22,6 +22,7 @@ const messageRoutes = require('./src/routes/MessageRoutes')
 const { initSocket } = require('./src/sockets/socket')
 const orderRoutes = require('./src/routes/orders')
 const followupRoutes = require('./src/routes/followups')
+const employeeRoutes = require('./src/routes/employeeRoutes')
 
 const app = express()
 app.use(express.json({ limit: '50mb' }))
@@ -47,6 +48,8 @@ app.use('/chat', chatRoutes);
 app.use('/messages', messageRoutes);
 app.use('/order', orderRoutes)
 app.use('/followup' , followupRoutes)
+app.use('/employee', employeeRoutes)
+app.use('/employees', employeeRoutes)
 
 const server = http.createServer(app)
 try {

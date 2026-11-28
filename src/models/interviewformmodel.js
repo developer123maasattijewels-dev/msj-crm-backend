@@ -10,9 +10,9 @@ const interviewSchema = new mongoose.Schema(
         },
         candidateEmail: {
             type: String,
-            required: true,
             trim: true,
             lowercase: true,
+            default: "",
         },
         candidatePhone: {
             type: String,
@@ -32,9 +32,15 @@ const interviewSchema = new mongoose.Schema(
         source: {
             type: String,
             required: true,
+            trim: true,
             enum: [
                 "Walk-in",
+                "Direct Application",
                 "Employee Referral",
+                "LinkedIn",
+                "Naukri",
+                "Indeed",
+                "Company Website",
                 "Job Portal",
                 "Social Media",
                 "Consultancy",
@@ -45,6 +51,11 @@ const interviewSchema = new mongoose.Schema(
             type: String,
             trim: true,
             default: "",
+        },
+        expectedSalary: {
+            type: Number,
+            min: 0,
+            default: null,
         },
         resume: {
             originalName: {
@@ -73,22 +84,12 @@ const interviewSchema = new mongoose.Schema(
                 type: Date,
                 default: null,
             },
-            interviewer: {
-                type: mongoose.Schema.Types.ObjectId,
-                ref: "User",
-                default: null,
-            },
-            feedback: {
-                type: String,
-                default: "",
-            },
             rating: {
                 type: Number,
                 min: 1,
                 max: 5,
                 default: null,
             },
-    
             offeredPosition: {
                 type: String,
                 default: "",
@@ -110,36 +111,26 @@ const interviewSchema = new mongoose.Schema(
                 ],
                 default: "Pending",
             },
-
-            interviewDate: {
-                type: Date,
-                default: null,
-            },
-
             interviewMode: {
                 type: String,
                 enum: ["Online", "Offline", "Telephonic"],
                 default: "Offline",
             },
-
             interviewer: {
                 type: String,
                 trim: true,
                 default: "",
             },
-
             feedback: {
                 type: String,
                 trim: true,
                 default: "",
             },
-
             remarks: {
                 type: String,
                 trim: true,
                 default: "",
             },
-
         },
 
         // 3. Overall Hiring Workflow
@@ -147,7 +138,10 @@ const interviewSchema = new mongoose.Schema(
             type: String,
             enum: [
                 "New",
+                "Applied",
+                "Screening",
                 "Interview Scheduled",
+                "Interviewed",
                 "Selected",
                 "Training",
                 "Review Due",
@@ -194,10 +188,14 @@ const interviewSchema = new mongoose.Schema(
                 type: String,
                 enum: [
                     "Not Started",
+                    "Training Scheduled",
+                    "Training in Progress",
                     "In Progress",
+                    "Training Completed",
                     "Completed",
                     "Extended",
                     "Cancelled",
+                    "Not Required",
                 ],
                 default: "Not Started",
             },

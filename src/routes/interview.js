@@ -9,6 +9,7 @@ const {
     getAllInterviews,
     getInterviewById,
     updateInterview,
+    deleteInterview,
 } = require("../controller/interview");
 const router = express.Router();
 
@@ -57,12 +58,15 @@ const handleResumeUpload = (req, res, next) => {
 router.post("/add", handleResumeUpload, createInterview);
 router.get("/candidate/:id", getInterviewById);
 router.patch("/candidate/:id", handleResumeUpload, updateInterview);
+router.put("/candidate/:id", handleResumeUpload, updateInterview);
+router.delete("/candidate/:id", deleteInterview);
 router.get("/", getAllInterviews);
 
-// // Individual candidate
-// router.get("/:id", getInterviewById);
-// router.put("/:id", updateInterview);
-// router.delete("/:id", deleteInterview);
+// Individual candidate aliases
+router.get("/:id", getInterviewById);
+router.put("/:id", handleResumeUpload, updateInterview);
+router.patch("/:id", handleResumeUpload, updateInterview);
+router.delete("/:id", deleteInterview);
 
 // // Hiring workflow
 // router.patch("/:id/stage", updateHiringStage);
